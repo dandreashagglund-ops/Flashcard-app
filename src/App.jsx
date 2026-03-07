@@ -2275,12 +2275,15 @@ function AdminCards({ tags, themes, onUpdate }) {
   const [selected, setSelected] = useState([]);
   const [loading, setLoading] = useState(true);
   const [bulkAction, setBulkAction] = useState("");
+  const [editingCard, setEditingCard] = useState(null); // card being inline-edited
+  const [showMediaFetcherFor, setShowMediaFetcherFor] = useState(null); // single card
+  const [showBulkMedia, setShowBulkMedia] = useState(false);
 
   async function load() {
     setLoading(true);
     let q = supabase.from("cards").select("*").order("created_at",{ascending:false});
     if (filter==="flagged") q=q.eq("is_flagged",true);
-    else if (filter==="no_icon") q=q.eq("front_emoji","").eq("front_icon","");
+    else if (filter==="no_icon") q=q.is("front_emoji","").or("front_emoji.is.null");
     else if (filter==="no_tags") q=q.eq("tag_ids","{}");
     const { data } = await q; setCards(data||[]); setLoading(false);
   }
@@ -2290,17 +2293,62 @@ function AdminCards({ tags, themes, onUpdate }) {
   async function applyBulk() {
     if (!selected.length || !bulkAction) return;
     if (bulkAction==="deactivate") await supabase.from("cards").update({is_active:false}).in("id",selected);
-    if (bulkAction==="activate") await supabase.from("cards").update({is_active:true}).in("id",selected);
-    if (bulkAction==="delete") { if(!confirm("Ta bort valda kort?")) return; await supabase.from("cards").delete().in("id",selected); }
-    if (bulkAction==="unflag") await supabase.from("cards").update({is_flagged:false}).in("id",selected);
-    setSelected([]); load(); onUpdate();
+    else if (bulkAction==="activate") await supabase.from("cards").update({is_active:true}).in("id",selected);
+    else if (bulkAction==="unflag") await supabase.from("cards").update({is_flagged:false,flag_count:0}).in("id",selected);
+    else if (bulkAction==="delete") {
+      if(!confirm(`Ta bort ${selected.length} kort?`)) return;
+      await supabase.from("cards").delete().in("id",selected);
+    } else if (bulkAction==="media") {
+      setShowBulkMedia(true); return;
+    }
+    setSelected([]); setBulkAction(""); load(); onUpdate();
   }
 
-  const filtered = cards.filter(c=>(c.front+c.back).toLowerCase().includes(search.toLowerCase()));
+  async function saveEdit(card) {
+    const patch = {
+      front: card.front,
+      back: card.back,
+      notes: card.notes || null,
+      tag_ids: card.tag_ids || [],
+      front_emoji: card.front_emoji || "",
+      back_emoji: card.back_emoji || "",
+      front_icon: card.front_icon || "",
+      back_icon: card.back_icon || "",
+      front_image: card.front_image || null,
+      back_image: card.back_image || null,
+    };
+    await supabase.from("cards").update(patch).eq("id", card.id);
+    setEditingCard(null); load(); onUpdate();
+  }
+
+  const filtered = cards.filter(c=>(c.front+" "+c.back+" "+(c.notes||"")).toLowerCase().includes(search.toLowerCase()));
   const toggleAll = () => setSelected(s=>s.length===filtered.length?[]:filtered.map(c=>c.id));
+  const selectedCards = cards.filter(c => selected.includes(c.id));
 
   return (
     <div>
+      {editingCard && (
+        <AdminCardEditModal
+          card={editingCard}
+          tags={tags}
+          onSave={saveEdit}
+          onCancel={() => setEditingCard(null)}
+        />
+      )}
+
+      {showBulkMedia && (
+        <MediaFetcher
+          cards={selectedCards}
+          onApply={async (updates) => {
+            for (const { id, patch } of updates) {
+              await supabase.from("cards").update(patch).eq("id", id);
+            }
+            setShowBulkMedia(false); setSelected([]); setBulkAction(""); load(); onUpdate();
+          }}
+          onClose={() => { setShowBulkMedia(false); }}
+        />
+      )}
+
       <div className="toolbar">
         <select className="select-sm" value={filter} onChange={e=>setFilter(e.target.value)}>
           <option value="all">Alla kort</option>
@@ -2309,37 +2357,79 @@ function AdminCards({ tags, themes, onUpdate }) {
           <option value="no_tags">Saknar taggar</option>
         </select>
         <input className="search-input" type="search" placeholder="Sök kort…" value={search} onChange={e=>setSearch(e.target.value)} aria-label="Sök kort" />
-        {selected.length>0 && (
+        {selected.length > 0 && (
           <>
             <select className="select-sm" value={bulkAction} onChange={e=>setBulkAction(e.target.value)} aria-label="Massåtgärd">
-              <option value="">Välj åtgärd…</option>
-              <option value="activate">Aktivera</option>
-              <option value="deactivate">Inaktivera</option>
-              <option value="unflag">Ta bort flaggning</option>
-              <option value="delete">Ta bort</option>
+              <option value="">Välj åtgärd för {selected.length} kort…</option>
+              <option value="activate">✓ Aktivera</option>
+              <option value="deactivate">✗ Inaktivera</option>
+              <option value="unflag">🚩 Ta bort flagga</option>
+              <option value="media">🖼️ Hämta media</option>
+              <option value="delete">🗑️ Ta bort</option>
             </select>
-            <button className="btn-sm btn-primary-sm" onClick={applyBulk} disabled={!bulkAction}>Verkställ ({selected.length})</button>
+            <button className="btn-sm btn-primary-sm" onClick={applyBulk} disabled={!bulkAction}>Verkställ</button>
           </>
         )}
       </div>
+
       {loading ? <p className="muted">Laddar…</p> : (
         <div className="cards-table-wrap">
           <table className="cards-table">
             <thead><tr>
-              <th><input type="checkbox" checked={selected.length===filtered.length&&filtered.length>0} onChange={toggleAll} aria-label="Välj alla" /></th>
-              <th>Framsida</th><th>Baksida</th><th>Kommentar</th>
-              <th>Flaggad</th><th>Aktiv</th><th>Skapad</th>
+              <th style={{width:36}}><input type="checkbox" checked={selected.length===filtered.length&&filtered.length>0} onChange={toggleAll} aria-label="Välj alla" /></th>
+              <th>Framsida</th>
+              <th>Baksida</th>
+              <th>Kommentar</th>
+              <th>Media</th>
+              <th>Taggar</th>
+              <th>Flaggad</th>
+              <th>Aktiv</th>
+              <th>Åtgärder</th>
             </tr></thead>
             <tbody>
               {filtered.map(c=>(
-                <tr key={c.id} className={cn(c.is_flagged&&"row-flagged",!c.is_active&&"row-inactive")}>
+                <tr key={c.id} className={cn(c.is_flagged&&"row-flagged", !c.is_active&&"row-inactive", selected.includes(c.id)&&"row-selected")}>
                   <td><input type="checkbox" checked={selected.includes(c.id)} onChange={()=>setSelected(s=>s.includes(c.id)?s.filter(x=>x!==c.id):[...s,c.id])} aria-label={`Välj ${c.front}`} /></td>
-                  <td>{c.front_emoji} {c.front}</td>
-                  <td>{c.back_emoji} {c.back}</td>
-                  <td className="notes-cell">{c.notes}</td>
-                  <td>{c.is_flagged?<span className="badge badge-red" title={c.flag_reason}>🚩 Ja</span>:"Nej"}</td>
-                  <td>{c.is_active?"Ja":"Nej"}</td>
-                  <td>{fmtDate(c.created_at)}</td>
+                  <td>{c.front_emoji && <span>{c.front_emoji} </span>}{c.front}</td>
+                  <td>{c.back_emoji && <span>{c.back_emoji} </span>}{c.back}</td>
+                  <td className="notes-cell">{c.notes||"–"}</td>
+                  <td>
+                    {c.front_image
+                      ? <img src={c.front_image} alt="" style={{width:32,height:32,objectFit:"cover",borderRadius:4}} />
+                      : c.front_icon
+                        ? <img src={c.front_icon} alt="" style={{width:24,height:24,opacity:.7}} />
+                        : c.front_emoji
+                          ? <span style={{fontSize:18}}>{c.front_emoji}</span>
+                          : <span className="muted">–</span>
+                    }
+                  </td>
+                  <td>
+                    {(c.tag_ids||[]).length > 0
+                      ? (c.tag_ids||[]).map(tid => {
+                          const t = tags.find(x=>x.id===tid);
+                          return t ? <span key={tid} className="tag-chip-sm" style={{background:t.color||"#ccc"}}>{t.name}</span> : null;
+                        })
+                      : <span className="muted">–</span>
+                    }
+                  </td>
+                  <td>{c.is_flagged ? <span className="badge badge-red" title={c.flag_reason}>🚩</span> : "–"}</td>
+                  <td>{c.is_active ? "Ja" : "Nej"}</td>
+                  <td>
+                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                      <button className="btn-sm btn-ghost-sm" onClick={()=>setEditingCard({...c})}>✏️ Redigera</button>
+                      <button className="btn-sm btn-ghost-sm" onClick={async()=>{ await supabase.from("cards").update({is_active:!c.is_active}).eq("id",c.id); load(); }}>
+                        {c.is_active?"Inaktivera":"Aktivera"}
+                      </button>
+                      {c.is_flagged && (
+                        <button className="btn-sm btn-ghost-sm" onClick={async()=>{ await supabase.from("cards").update({is_flagged:false,flag_count:0}).eq("id",c.id); load(); }}>
+                          🚩 Avflagga
+                        </button>
+                      )}
+                      <button className="btn-sm btn-danger-sm" onClick={async()=>{ if(!confirm("Ta bort?")) return; await supabase.from("cards").delete().eq("id",c.id); load(); onUpdate(); }}>
+                        Ta bort
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2347,6 +2437,101 @@ function AdminCards({ tags, themes, onUpdate }) {
           {filtered.length===0 && <p className="muted center-msg">Inga kort.</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Admin Card Edit Modal ─────────────────────────────────────────
+function AdminCardEditModal({ card, tags, onSave, onCancel }) {
+  const [form, setForm] = useState({...card});
+  const f = v => setForm(p => ({...p,...v}));
+
+  function toggleTag(id) {
+    const arr = form.tag_ids || [];
+    f({ tag_ids: arr.includes(id) ? arr.filter(x=>x!==id) : [...arr, id] });
+  }
+
+  const mediaSources = [
+    { field: "front_emoji", label: "Framsida emoji" },
+    { field: "back_emoji",  label: "Baksida emoji" },
+    { field: "front_icon",  label: "Framsida ikon (SVG-url)" },
+    { field: "back_icon",   label: "Baksida ikon (SVG-url)" },
+    { field: "front_image", label: "Framsida bild (URL)" },
+    { field: "back_image",  label: "Baksida bild (URL)" },
+  ];
+
+  return (
+    <div className="editor-overlay" role="dialog" aria-modal="true" aria-label="Redigera kort">
+      <div className="editor-card editor-card-wide">
+        <h2>✏️ Redigera kort</h2>
+
+        <div className="form-row">
+          <div className="form-field">
+            <label className="form-label" htmlFor="ace-front">Framsida *</label>
+            <input id="ace-front" className="form-input" value={form.front} onChange={e=>f({front:e.target.value})} required />
+          </div>
+          <div className="form-field">
+            <label className="form-label" htmlFor="ace-back">Baksida *</label>
+            <input id="ace-back" className="form-input" value={form.back} onChange={e=>f({back:e.target.value})} required />
+          </div>
+        </div>
+
+        <div className="form-field">
+          <label className="form-label" htmlFor="ace-notes">Kommentar</label>
+          <textarea id="ace-notes" className="form-input" rows={3} value={form.notes||""} onChange={e=>f({notes:e.target.value})} placeholder="Förklaring, kontext, exempel…" />
+        </div>
+
+        <div className="form-field">
+          <label className="form-label">Taggar</label>
+          <div className="tag-picker">
+            {tags.map(t => (
+              <button key={t.id} type="button"
+                className={cn("tag-chip", (form.tag_ids||[]).includes(t.id) && "active")}
+                style={(form.tag_ids||[]).includes(t.id) ? {background:t.color,color:"white"} : {}}
+                onClick={() => toggleTag(t.id)}
+                aria-pressed={(form.tag_ids||[]).includes(t.id)}
+              >
+                {t.name}
+              </button>
+            ))}
+            {tags.length === 0 && <span className="muted">Inga taggar tillgängliga</span>}
+          </div>
+        </div>
+
+        <div className="form-field">
+          <label className="form-label">Media</label>
+          <div className="admin-media-grid">
+            {mediaSources.map(({ field, label }) => (
+              <div key={field} className="admin-media-row">
+                <label className="form-label" style={{marginBottom:4}}>{label}</label>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <input className="form-input" value={form[field]||""} onChange={e=>f({[field]:e.target.value})}
+                    placeholder={field.includes("emoji") ? "t.ex. 🐕" : "URL eller data:…"}
+                  />
+                  {form[field] && (
+                    <div className="admin-media-preview">
+                      {field.includes("emoji")
+                        ? <span style={{fontSize:28}}>{form[field]}</span>
+                        : <img src={form[field]} alt="" style={{width:40,height:40,objectFit:"cover",borderRadius:4}} onError={e=>e.target.style.display="none"} />
+                      }
+                    </div>
+                  )}
+                  {form[field] && (
+                    <button className="btn-sm btn-danger-sm" onClick={()=>f({[field]:""})} aria-label={`Ta bort ${label}`}>✕</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="editor-actions">
+          <button className="btn-primary" onClick={()=>form.front.trim()&&form.back.trim()&&onSave(form)} disabled={!form.front.trim()||!form.back.trim()}>
+            Spara ändringar
+          </button>
+          <button className="btn-ghost" onClick={onCancel}>Avbryt</button>
+        </div>
+      </div>
     </div>
   );
 }
