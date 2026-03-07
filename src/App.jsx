@@ -339,6 +339,9 @@ function MainApp({ session }) {
   const isAdmin = profile?.role === "sysadmin";
   const isManager = profile?.role === "group_manager" || isAdmin;
 
+  // Don't render until profile is loaded — prevents admin nav from disappearing on first render
+  if (!profile) return <div className="splash" role="status"><div className="splash-logo">✦</div><p>Laddar profil…</p></div>;
+
   // NAV
   const insideDeck = activeDeck && !["decks","explore","stats","admin","profile","themes","study_theme"].includes(view);
   const deckNav = [
@@ -427,9 +430,27 @@ function DecksView({ decks, uid, tags, themes, onOpen, onUpdate }) {
   }, [uid, decks]);
 
   async function saveDeck(data) {
-    if (data.id) { await supabase.from("decks").update(data).eq("id", data.id); }
-    else {
-      const { data: nd } = await supabase.from("decks").insert({...data, user_id: uid}).select().single();
+    // Only send columns that exist in the decks table
+    const payload = {
+      name: data.name,
+      description: data.description || null,
+      pair_type: data.pair_type || "vocabulary",
+      front_lang: data.front_lang || "en",
+      back_lang: data.back_lang || "sv",
+      color: data.color || "#c84b2f",
+      theme_icon: data.theme_icon || "📚",
+      is_public: data.is_public || false,
+    };
+    // Add optional columns only if they exist (migration may not have run)
+    if (data.theme_ids !== undefined) payload.theme_ids = data.theme_ids;
+    if (data.tag_ids !== undefined) payload.tag_ids = data.tag_ids;
+
+    if (data.id) {
+      const { error } = await supabase.from("decks").update(payload).eq("id", data.id);
+      if (error) { alert("Fel vid sparande: " + error.message); return; }
+    } else {
+      const { data: nd, error } = await supabase.from("decks").insert({...payload, user_id: uid}).select().single();
+      if (error) { alert("Fel vid skapande: " + error.message); return; }
       if (nd) await logEvent(uid, "deck_created", { deck_name: data.name });
     }
     setShowEditor(false); setEditing(null); onUpdate();
@@ -880,8 +901,28 @@ function CardsView({ cards, tags, themes, onUpdate, uid, deckId }) {
   );
 
   async function saveCard(data) {
-    if (data.id) await supabase.from("cards").update(data).eq("id", data.id);
-    else await supabase.from("cards").insert({...data, user_id:uid, deck_id:deckId});
+    // Build safe payload with only guaranteed columns
+    const payload = {
+      front: data.front,
+      back: data.back,
+      notes: data.notes || null,
+    };
+    // Add optional columns defensively
+    if (data.front_emoji !== undefined) payload.front_emoji = data.front_emoji;
+    if (data.back_emoji !== undefined) payload.back_emoji = data.back_emoji;
+    if (data.front_icon !== undefined) payload.front_icon = data.front_icon;
+    if (data.back_icon !== undefined) payload.back_icon = data.back_icon;
+    if (data.difficulty !== undefined) payload.difficulty = data.difficulty;
+    if (data.tag_ids !== undefined) payload.tag_ids = data.tag_ids;
+    if (data.theme_ids !== undefined) payload.theme_ids = data.theme_ids;
+
+    if (data.id) {
+      const { error } = await supabase.from("cards").update(payload).eq("id", data.id);
+      if (error) { alert("Fel vid sparande: " + error.message); return; }
+    } else {
+      const { error } = await supabase.from("cards").insert({...payload, user_id:uid, deck_id:deckId});
+      if (error) { alert("Fel vid skapande: " + error.message); return; }
+    }
     setShowEditor(false); setEditing(null); onUpdate();
   }
   async function deleteCard(id) {
@@ -1066,10 +1107,12 @@ function ImportView({ deck, uid, onUpdate }) {
   const [busy, setBusy] = useState(false);
 
   function parseCSV(text) {
-    return text.trim().split("\n").map(line => {
-      const parts = line.split(",").map(p => p.trim().replace(/^["']|["']$/g, ""));
-      return { front: parts[0]||"", back: parts[1]||"", notes: parts[2]||"", front_emoji: parts[3]||"" };
-    }).filter(r => r.front && r.back);
+    return text.trim().split("\n")
+      .filter(line => line.trim())
+      .map(line => {
+        const parts = line.split(",").map(p => p.trim().replace(/^["']|["']$/g, ""));
+        return { front: parts[0]||"", back: parts[1]||"", notes: parts[2]||"", emoji: parts[3]||"" };
+      }).filter(r => r.front && r.back);
   }
 
   useEffect(() => { if (csv) setPreview(parseCSV(csv).slice(0, 5)); else setPreview([]); }, [csv]);
@@ -1078,8 +1121,26 @@ function ImportView({ deck, uid, onUpdate }) {
     setBusy(true); setStatus("");
     const rows = parseCSV(csv);
     if (!rows.length) { setStatus("Inga giltiga rader hittades."); setBusy(false); return; }
-    const inserts = rows.map(r => ({ ...r, user_id: uid, deck_id: deck.id }));
-    const { error } = await supabase.from("cards").insert(inserts);
+
+    // Try inserting with emoji field first, fall back to without if column missing
+    const withEmoji = rows.map(r => ({
+      user_id: uid, deck_id: deck.id,
+      front: r.front, back: r.back, notes: r.notes || null,
+      front_emoji: r.emoji || "",
+    }));
+
+    let { error } = await supabase.from("cards").insert(withEmoji);
+
+    // If front_emoji column doesn't exist yet, retry without it
+    if (error && error.message.includes("front_emoji")) {
+      const withoutEmoji = rows.map(r => ({
+        user_id: uid, deck_id: deck.id,
+        front: r.front, back: r.back, notes: r.notes || null,
+      }));
+      const res2 = await supabase.from("cards").insert(withoutEmoji);
+      error = res2.error;
+    }
+
     if (error) { setStatus("Fel: " + error.message); }
     else {
       await logEvent(uid, "data_imported", { deck_id: deck.id, count: rows.length });
@@ -1094,7 +1155,7 @@ function ImportView({ deck, uid, onUpdate }) {
         <h1 className="view-title">Importera kort</h1>
       </div>
       <div className="import-box">
-        <p className="import-format">Format per rad: <code>ord1, ord2, kommentar, emoji</code> (kommentar och emoji är valfria)</p>
+        <p className="import-format">Format per rad: <code>ord1, ord2, kommentar, emoji</code></p>
         <p className="import-format">Exempel: <code>hund, dog, En fyrbent vän, 🐶</code></p>
         <textarea
           className="form-input form-textarea import-textarea"
@@ -1109,7 +1170,7 @@ function ImportView({ deck, uid, onUpdate }) {
             <strong>Förhandsgranskning ({preview.length} av {parseCSV(csv).length} rader):</strong>
             <table className="cards-table">
               <thead><tr><th>Framsida</th><th>Baksida</th><th>Kommentar</th><th>Emoji</th></tr></thead>
-              <tbody>{preview.map((r, i) => <tr key={i}><td>{r.front}</td><td>{r.back}</td><td>{r.notes}</td><td>{r.front_emoji}</td></tr>)}</tbody>
+              <tbody>{preview.map((r, i) => <tr key={i}><td>{r.front}</td><td>{r.back}</td><td>{r.notes}</td><td>{r.emoji}</td></tr>)}</tbody>
             </table>
           </div>
         )}
@@ -1770,16 +1831,36 @@ function AdminImport({ uid, tags, themes, onUpdate }) {
   async function doAdminImport() {
     if (!deckName.trim()) { setStatus("Ange listnamn."); return; }
     setBusy(true); setStatus("");
-    const rows = csv.trim().split("\n").map(line=>{
+
+    const rows = csv.trim().split("\n").filter(l=>l.trim()).map(line=>{
       const p = line.split(",").map(x=>x.trim().replace(/^["']|["']$/g,""));
-      return { front:p[0]||"", back:p[1]||"", notes:p[2]||"", front_emoji:p[3]||"", theme_ids:[], tag_ids:[] };
+      return { front:p[0]||"", back:p[1]||"", notes:p[2]||null, emoji:p[3]||"" };
     }).filter(r=>r.front&&r.back);
+
     if (!rows.length) { setStatus("Inga giltiga rader."); setBusy(false); return; }
-    const { data: deck, error: de } = await supabase.from("decks").insert({ user_id:uid, name:deckName, front_lang:frontLang, back_lang:backLang }).select().single();
+
+    // Create deck with only safe columns
+    const { data: deck, error: de } = await supabase.from("decks")
+      .insert({ user_id:uid, name:deckName.trim(), front_lang:frontLang, back_lang:backLang })
+      .select().single();
     if (de) { setStatus("Fel vid skapande av lista: "+de.message); setBusy(false); return; }
-    const { error } = await supabase.from("cards").insert(rows.map(r=>({...r, user_id:uid, deck_id:deck.id})));
+
+    // Try insert with front_emoji, fall back without if column missing
+    const withEmoji = rows.map(r=>({ user_id:uid, deck_id:deck.id, front:r.front, back:r.back, notes:r.notes, front_emoji:r.emoji }));
+    let { error } = await supabase.from("cards").insert(withEmoji);
+
+    if (error && error.message.includes("front_emoji")) {
+      const withoutEmoji = rows.map(r=>({ user_id:uid, deck_id:deck.id, front:r.front, back:r.back, notes:r.notes }));
+      const res2 = await supabase.from("cards").insert(withoutEmoji);
+      error = res2.error;
+    }
+
     if (error) { setStatus("Fel: "+error.message); }
-    else { await logEvent(uid,"data_imported",{deck_id:deck.id,count:rows.length}); setStatus(`✓ Importerade ${rows.length} kort till "${deckName}"`); setCsv(""); setDeckName(""); onUpdate(); }
+    else {
+      await logEvent(uid,"data_imported",{deck_id:deck.id,count:rows.length});
+      setStatus(`✓ Importerade ${rows.length} kort till "${deckName}"`);
+      setCsv(""); setDeckName(""); onUpdate();
+    }
     setBusy(false);
   }
 
