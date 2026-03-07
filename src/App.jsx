@@ -2275,9 +2275,10 @@ function AdminCards({ tags, themes, onUpdate }) {
   const [selected, setSelected] = useState([]);
   const [loading, setLoading] = useState(true);
   const [bulkAction, setBulkAction] = useState("");
-  const [editingCard, setEditingCard] = useState(null); // card being inline-edited
-  const [showMediaFetcherFor, setShowMediaFetcherFor] = useState(null); // single card
+  const [editingCard, setEditingCard] = useState(null);
   const [showBulkMedia, setShowBulkMedia] = useState(false);
+  const [showBulkTags, setShowBulkTags] = useState(false);
+  const [showBulkThemes, setShowBulkThemes] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -2298,24 +2299,46 @@ function AdminCards({ tags, themes, onUpdate }) {
     else if (bulkAction==="delete") {
       if(!confirm(`Ta bort ${selected.length} kort?`)) return;
       await supabase.from("cards").delete().in("id",selected);
-    } else if (bulkAction==="media") {
-      setShowBulkMedia(true); return;
-    }
+    } else if (bulkAction==="media") { setShowBulkMedia(true); return; }
+    else if (bulkAction==="tags") { setShowBulkTags(true); return; }
+    else if (bulkAction==="themes") { setShowBulkThemes(true); return; }
     setSelected([]); setBulkAction(""); load(); onUpdate();
+  }
+
+  async function applyBulkTags(tagIds, mode) {
+    // mode: "add" | "remove" | "replace"
+    const affectedCards = cards.filter(c => selected.includes(c.id));
+    for (const card of affectedCards) {
+      const existing = card.tag_ids || [];
+      let next;
+      if (mode === "add") next = [...new Set([...existing, ...tagIds])];
+      else if (mode === "remove") next = existing.filter(id => !tagIds.includes(id));
+      else next = tagIds; // replace
+      await supabase.from("cards").update({ tag_ids: next }).eq("id", card.id);
+    }
+    setShowBulkTags(false); setSelected([]); setBulkAction(""); load(); onUpdate();
+  }
+
+  async function applyBulkThemes(themeIds, mode) {
+    const affectedCards = cards.filter(c => selected.includes(c.id));
+    for (const card of affectedCards) {
+      const existing = card.theme_ids || [];
+      let next;
+      if (mode === "add") next = [...new Set([...existing, ...themeIds])];
+      else if (mode === "remove") next = existing.filter(id => !themeIds.includes(id));
+      else next = themeIds;
+      await supabase.from("cards").update({ theme_ids: next }).eq("id", card.id);
+    }
+    setShowBulkThemes(false); setSelected([]); setBulkAction(""); load(); onUpdate();
   }
 
   async function saveEdit(card) {
     const patch = {
-      front: card.front,
-      back: card.back,
-      notes: card.notes || null,
-      tag_ids: card.tag_ids || [],
-      front_emoji: card.front_emoji || "",
-      back_emoji: card.back_emoji || "",
-      front_icon: card.front_icon || "",
-      back_icon: card.back_icon || "",
-      front_image: card.front_image || null,
-      back_image: card.back_image || null,
+      front: card.front, back: card.back, notes: card.notes || null,
+      tag_ids: card.tag_ids || [], theme_ids: card.theme_ids || [],
+      front_emoji: card.front_emoji || "", back_emoji: card.back_emoji || "",
+      front_icon: card.front_icon || "", back_icon: card.back_icon || "",
+      front_image: card.front_image || null, back_image: card.back_image || null,
     };
     await supabase.from("cards").update(patch).eq("id", card.id);
     setEditingCard(null); load(); onUpdate();
@@ -2328,24 +2351,31 @@ function AdminCards({ tags, themes, onUpdate }) {
   return (
     <div>
       {editingCard && (
-        <AdminCardEditModal
-          card={editingCard}
-          tags={tags}
-          onSave={saveEdit}
-          onCancel={() => setEditingCard(null)}
-        />
+        <AdminCardEditModal card={editingCard} tags={tags} themes={themes}
+          onSave={saveEdit} onCancel={() => setEditingCard(null)} />
       )}
-
       {showBulkMedia && (
-        <MediaFetcher
-          cards={selectedCards}
+        <MediaFetcher cards={selectedCards}
           onApply={async (updates) => {
-            for (const { id, patch } of updates) {
-              await supabase.from("cards").update(patch).eq("id", id);
-            }
+            for (const { id, patch } of updates) await supabase.from("cards").update(patch).eq("id", id);
             setShowBulkMedia(false); setSelected([]); setBulkAction(""); load(); onUpdate();
           }}
-          onClose={() => { setShowBulkMedia(false); }}
+          onClose={() => setShowBulkMedia(false)} />
+      )}
+      {showBulkTags && (
+        <BulkTagThemeModal
+          title={`Taggar för ${selected.length} kort`}
+          items={tags}
+          onApply={applyBulkTags}
+          onCancel={() => { setShowBulkTags(false); setBulkAction(""); }}
+        />
+      )}
+      {showBulkThemes && (
+        <BulkTagThemeModal
+          title={`Teman för ${selected.length} kort`}
+          items={themes.map(t => ({ ...t, name: `${t.icon} ${t.name}` }))}
+          onApply={applyBulkThemes}
+          onCancel={() => { setShowBulkThemes(false); setBulkAction(""); }}
         />
       )}
 
@@ -2364,6 +2394,8 @@ function AdminCards({ tags, themes, onUpdate }) {
               <option value="activate">✓ Aktivera</option>
               <option value="deactivate">✗ Inaktivera</option>
               <option value="unflag">🚩 Ta bort flagga</option>
+              <option value="tags">🏷️ Lägg till/ta bort taggar</option>
+              <option value="themes">🎨 Lägg till/ta bort teman</option>
               <option value="media">🖼️ Hämta media</option>
               <option value="delete">🗑️ Ta bort</option>
             </select>
@@ -2441,14 +2473,86 @@ function AdminCards({ tags, themes, onUpdate }) {
   );
 }
 
+// ── Bulk Tag / Theme Modal ────────────────────────────────────────
+function BulkTagThemeModal({ title, items, onApply, onCancel }) {
+  const [chosen, setChosen] = useState([]);
+  const [mode, setMode] = useState("add"); // add | remove | replace
+
+  function toggle(id) {
+    setChosen(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
+  }
+
+  const modeLabels = {
+    add: "Lägg till (behåll befintliga)",
+    remove: "Ta bort (behåll övriga)",
+    replace: "Ersätt alla (ta bort befintliga)",
+  };
+
+  return (
+    <div className="editor-overlay" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="editor-card">
+        <h2>{title}</h2>
+
+        <div className="form-field">
+          <label className="form-label">Åtgärd</label>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {Object.entries(modeLabels).map(([key, label]) => (
+              <label key={key} className="form-label checkbox-label" style={{ fontWeight: mode===key ? 600 : 400 }}>
+                <input type="radio" name="bulk-mode" value={key} checked={mode===key} onChange={()=>setMode(key)} />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="form-field">
+          <label className="form-label">Välj {mode === "remove" ? "att ta bort" : "att lägga till"}</label>
+          <div className="tag-picker">
+            {items.map(item => (
+              <button key={item.id} type="button"
+                className={cn("tag-chip", chosen.includes(item.id) && "active")}
+                style={chosen.includes(item.id) ? { background: item.color||"#c84b2f", color:"white" } : {}}
+                onClick={() => toggle(item.id)}
+                aria-pressed={chosen.includes(item.id)}
+              >
+                {item.name}
+              </button>
+            ))}
+            {items.length === 0 && <span className="muted">Inga tillgängliga.</span>}
+          </div>
+        </div>
+
+        {chosen.length > 0 && (
+          <p className="muted" style={{ fontSize:13 }}>
+            {mode === "add" && `Lägger till ${chosen.length} på alla valda kort.`}
+            {mode === "remove" && `Tar bort ${chosen.length} från alla valda kort.`}
+            {mode === "replace" && `Ersätter alla befintliga med de ${chosen.length} valda.`}
+          </p>
+        )}
+
+        <div className="editor-actions">
+          <button className="btn-primary" onClick={() => onApply(chosen, mode)} disabled={chosen.length === 0}>
+            Verkställ
+          </button>
+          <button className="btn-ghost" onClick={onCancel}>Avbryt</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Admin Card Edit Modal ─────────────────────────────────────────
-function AdminCardEditModal({ card, tags, onSave, onCancel }) {
+function AdminCardEditModal({ card, tags, themes, onSave, onCancel }) {
   const [form, setForm] = useState({...card});
   const f = v => setForm(p => ({...p,...v}));
 
   function toggleTag(id) {
     const arr = form.tag_ids || [];
     f({ tag_ids: arr.includes(id) ? arr.filter(x=>x!==id) : [...arr, id] });
+  }
+  function toggleTheme(id) {
+    const arr = form.theme_ids || [];
+    f({ theme_ids: arr.includes(id) ? arr.filter(x=>x!==id) : [...arr, id] });
   }
 
   const mediaSources = [
@@ -2497,6 +2601,24 @@ function AdminCardEditModal({ card, tags, onSave, onCancel }) {
             {tags.length === 0 && <span className="muted">Inga taggar tillgängliga</span>}
           </div>
         </div>
+
+        {themes && themes.length > 0 && (
+          <div className="form-field">
+            <label className="form-label">Teman</label>
+            <div className="tag-picker">
+              {themes.map(t => (
+                <button key={t.id} type="button"
+                  className={cn("tag-chip", (form.theme_ids||[]).includes(t.id) && "active")}
+                  style={(form.theme_ids||[]).includes(t.id) ? {background:t.color||"#c84b2f",color:"white"} : {}}
+                  onClick={() => toggleTheme(t.id)}
+                  aria-pressed={(form.theme_ids||[]).includes(t.id)}
+                >
+                  {t.icon} {t.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="form-field">
           <label className="form-label">Media</label>
