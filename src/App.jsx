@@ -288,9 +288,20 @@ function MainApp({ session }) {
 
   // Load profile
   const loadProfile = useCallback(async () => {
-    const { data } = await supabase.from("profiles").select("*").eq("id", uid).single();
-    if (data) setProfile(data);
-    // Update last_active
+    const { data, error } = await supabase.from("profiles").select("*").eq("id", uid).single();
+    if (data) {
+      setProfile(data);
+    } else {
+      // Profile missing – create a default one and set it
+      const { data: created } = await supabase
+        .from("profiles")
+        .insert({ id: uid, username: "Användare", role: "user", plan: "free" })
+        .select()
+        .single();
+      if (created) setProfile(created);
+      else setProfile({ id: uid, username: "Användare", role: "user", plan: "free" }); // fallback
+    }
+    // Update last_active (ignore errors)
     await supabase.from("profiles").update({ last_active: new Date().toISOString() }).eq("id", uid);
   }, [uid]);
 
