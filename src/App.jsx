@@ -441,28 +441,39 @@ function DecksView({ decks, uid, tags, themes, onOpen, onUpdate }) {
   }, [uid, decks]);
 
   async function saveDeck(data) {
-    // Only send columns that exist in the decks table
+    // Start with only the columns that exist in the original decks table
     const payload = {
       name: data.name,
       description: data.description || null,
-      pair_type: data.pair_type || "vocabulary",
       front_lang: data.front_lang || "en",
       back_lang: data.back_lang || "sv",
       color: data.color || "#c84b2f",
       theme_icon: data.theme_icon || "📚",
       is_public: data.is_public || false,
     };
-    // Add optional columns only if they exist (migration may not have run)
-    if (data.theme_ids !== undefined) payload.theme_ids = data.theme_ids;
-    if (data.tag_ids !== undefined) payload.tag_ids = data.tag_ids;
+
+    // Try with all new columns first
+    const fullPayload = {
+      ...payload,
+      pair_type: data.pair_type || "vocabulary",
+      theme_ids: data.theme_ids || [],
+      tag_ids: data.tag_ids || [],
+    };
 
     if (data.id) {
-      const { error } = await supabase.from("decks").update(payload).eq("id", data.id);
-      if (error) { alert("Fel vid sparande: " + error.message); return; }
+      let { error } = await supabase.from("decks").update(fullPayload).eq("id", data.id);
+      if (error && (error.message.includes("pair_type") || error.message.includes("theme_ids") || error.message.includes("tag_ids"))) {
+        const { error: e2 } = await supabase.from("decks").update(payload).eq("id", data.id);
+        if (e2) { alert("Fel vid sparande: " + e2.message); return; }
+      } else if (error) { alert("Fel vid sparande: " + error.message); return; }
     } else {
-      const { data: nd, error } = await supabase.from("decks").insert({...payload, user_id: uid}).select().single();
-      if (error) { alert("Fel vid skapande: " + error.message); return; }
-      if (nd) await logEvent(uid, "deck_created", { deck_name: data.name });
+      let { data: nd, error } = await supabase.from("decks").insert({...fullPayload, user_id: uid}).select().single();
+      if (error && (error.message.includes("pair_type") || error.message.includes("theme_ids") || error.message.includes("tag_ids"))) {
+        const { data: nd2, error: e2 } = await supabase.from("decks").insert({...payload, user_id: uid}).select().single();
+        if (e2) { alert("Fel vid skapande: " + e2.message); return; }
+        if (nd2) await logEvent(uid, "deck_created", { deck_name: data.name });
+      } else if (error) { alert("Fel vid skapande: " + error.message); return; }
+      else if (nd) await logEvent(uid, "deck_created", { deck_name: data.name });
     }
     setShowEditor(false); setEditing(null); onUpdate();
   }
@@ -1475,6 +1486,7 @@ function AdminView({ uid, themes, tags, onUpdate }) {
   const [tab, setTab] = useState("stats");
   const tabs = [
     { id:"stats", label:"📊 Statistik" },
+    { id:"decks", label:"📚 Listor" },
     { id:"cards", label:"🃏 Kort" },
     { id:"users", label:"👥 Användare" },
     { id:"tags", label:"🏷️ Taggar" },
@@ -1495,6 +1507,7 @@ function AdminView({ uid, themes, tags, onUpdate }) {
       </div>
       <div className="admin-panel">
         {tab==="stats" && <AdminStats />}
+        {tab==="decks" && <AdminDecks uid={uid} tags={tags} themes={themes} onUpdate={onUpdate} />}
         {tab==="cards" && <AdminCards tags={tags} themes={themes} onUpdate={onUpdate} />}
         {tab==="users" && <AdminUsers uid={uid} />}
         {tab==="tags" && <AdminTags tags={tags} uid={uid} onUpdate={onUpdate} />}
@@ -1542,6 +1555,184 @@ function AdminStats() {
             <tbody>{stats.wrong.filter(c=>c.flag_count>0).map((c,i)=><tr key={i}><td>{c.front}</td><td>{c.back}</td><td>{c.flag_count}</td></tr>)}</tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Admin: Decks ──────────────────────────────────────────────────
+function AdminDecks({ uid, tags, themes, onUpdate }) {
+  const [decks, setDecks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null); // deck being edited for cards
+  const [deckCards, setDeckCards] = useState([]);
+  const [showCardEditor, setShowCardEditor] = useState(false);
+  const [editingCard, setEditingCard] = useState(null);
+
+  async function loadDecks() {
+    setLoading(true);
+    const { data } = await supabase.from("decks").select("*").order("created_at", { ascending: false });
+    setDecks(data || []);
+    setLoading(false);
+  }
+
+  async function loadDeckCards(deckId) {
+    const { data } = await supabase.from("cards").select("*").eq("deck_id", deckId).order("created_at");
+    setDeckCards(data || []);
+  }
+
+  useEffect(() => { loadDecks(); }, []);
+  useEffect(() => { if (selected) loadDeckCards(selected.id); }, [selected]);
+
+  async function toggleActive(deck) {
+    await supabase.from("decks").update({ is_active: !deck.is_active }).eq("id", deck.id);
+    loadDecks();
+  }
+  async function togglePublic(deck) {
+    await supabase.from("decks").update({ is_public: !deck.is_public }).eq("id", deck.id);
+    loadDecks();
+  }
+  async function deleteDeck(deck) {
+    if (!confirm(`Ta bort listan "${deck.name}" och alla dess kort?`)) return;
+    await supabase.from("decks").delete().eq("id", deck.id);
+    if (selected?.id === deck.id) { setSelected(null); setDeckCards([]); }
+    loadDecks(); onUpdate();
+  }
+
+  async function saveCard(data) {
+    const payload = { front: data.front, back: data.back, notes: data.notes || null };
+    if (data.front_emoji !== undefined) payload.front_emoji = data.front_emoji;
+    if (data.back_emoji !== undefined) payload.back_emoji = data.back_emoji;
+    if (data.difficulty !== undefined) payload.difficulty = data.difficulty;
+    if (data.tag_ids !== undefined) payload.tag_ids = data.tag_ids;
+    if (data.theme_ids !== undefined) payload.theme_ids = data.theme_ids;
+
+    if (data.id) {
+      await supabase.from("cards").update(payload).eq("id", data.id);
+    } else {
+      await supabase.from("cards").insert({ ...payload, user_id: uid, deck_id: selected.id });
+    }
+    setShowCardEditor(false); setEditingCard(null);
+    loadDeckCards(selected.id); onUpdate();
+  }
+
+  async function deleteCard(id) {
+    if (!confirm("Ta bort kortet?")) return;
+    await supabase.from("cards").delete().eq("id", id);
+    loadDeckCards(selected.id); onUpdate();
+  }
+
+  async function toggleCardActive(card) {
+    await supabase.from("cards").update({ is_active: !card.is_active }).eq("id", card.id);
+    loadDeckCards(selected.id);
+  }
+
+  const filtered = decks.filter(d => d.name.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div>
+      {!selected ? (
+        <>
+          <div className="toolbar">
+            <input className="search-input" type="search" placeholder="Sök lista…" value={search} onChange={e => setSearch(e.target.value)} aria-label="Sök listor" />
+          </div>
+          {loading ? <p className="muted">Laddar…</p> : (
+            <div className="cards-table-wrap">
+              <table className="cards-table">
+                <thead>
+                  <tr>
+                    <th>Lista</th>
+                    <th>Ägare (user_id)</th>
+                    <th>Aktiv</th>
+                    <th>Publik</th>
+                    <th>Skapad</th>
+                    <th>Åtgärder</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(deck => (
+                    <tr key={deck.id} className={cn(!deck.is_active && "row-inactive")}>
+                      <td>
+                        <strong>{deck.theme_icon || "📚"} {deck.name}</strong>
+                        {deck.description && <div className="notes-cell">{deck.description}</div>}
+                      </td>
+                      <td style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{deck.user_id?.slice(0, 8)}…</td>
+                      <td>{deck.is_active !== false ? "Ja" : "Nej"}</td>
+                      <td>{deck.is_public ? "🌐 Ja" : "🔒 Nej"}</td>
+                      <td>{fmtDate(deck.created_at)}</td>
+                      <td>
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                          <button className="btn-sm btn-ghost-sm" onClick={() => setSelected(deck)}>✏️ Kort</button>
+                          <button className="btn-sm btn-ghost-sm" onClick={() => togglePublic(deck)}>{deck.is_public ? "🔒 Gör privat" : "🌐 Publicera"}</button>
+                          <button className="btn-sm btn-ghost-sm" onClick={() => toggleActive(deck)}>{deck.is_active !== false ? "Inaktivera" : "Aktivera"}</button>
+                          <button className="btn-sm btn-danger-sm" onClick={() => deleteDeck(deck)}>Ta bort</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filtered.length === 0 && <p className="muted center-msg">Inga listor.</p>}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="view-header" style={{ marginBottom: 16 }}>
+            <div>
+              <button className="btn-ghost" onClick={() => { setSelected(null); setDeckCards([]); }}>← Tillbaka till listor</button>
+              <h2 style={{ marginTop: 8 }}>{selected.theme_icon} {selected.name}</h2>
+              <p className="muted">{deckCards.length} kort</p>
+            </div>
+            <button className="btn-primary" onClick={() => { setEditingCard(null); setShowCardEditor(true); }}>+ Nytt kort</button>
+          </div>
+
+          {showCardEditor && (
+            <CardEditor
+              card={editingCard}
+              tags={tags}
+              themes={themes}
+              deckId={selected.id}
+              onSave={saveCard}
+              onCancel={() => { setShowCardEditor(false); setEditingCard(null); }}
+            />
+          )}
+
+          <div className="cards-table-wrap">
+            <table className="cards-table">
+              <thead>
+                <tr>
+                  <th>Framsida</th>
+                  <th>Baksida</th>
+                  <th>Kommentar</th>
+                  <th>Aktiv</th>
+                  <th>Flaggad</th>
+                  <th>Åtgärder</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deckCards.map(card => (
+                  <tr key={card.id} className={cn(!card.is_active && "row-inactive", card.is_flagged && "row-flagged")}>
+                    <td>{card.front_emoji && <span aria-hidden="true">{card.front_emoji} </span>}{card.front}</td>
+                    <td>{card.back_emoji && <span aria-hidden="true">{card.back_emoji} </span>}{card.back}</td>
+                    <td className="notes-cell">{card.notes}</td>
+                    <td>{card.is_active !== false ? "Ja" : "Nej"}</td>
+                    <td>{card.is_flagged ? <span className="badge badge-red">🚩</span> : "–"}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button className="btn-sm btn-ghost-sm" onClick={() => { setEditingCard(card); setShowCardEditor(true); }}>Redigera</button>
+                        <button className="btn-sm btn-ghost-sm" onClick={() => toggleCardActive(card)}>{card.is_active !== false ? "Inaktivera" : "Aktivera"}</button>
+                        <button className="btn-sm btn-danger-sm" onClick={() => deleteCard(card.id)}>Ta bort</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {deckCards.length === 0 && <p className="muted center-msg">Inga kort i den här listan.</p>}
+          </div>
+        </>
       )}
     </div>
   );
