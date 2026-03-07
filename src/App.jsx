@@ -21,6 +21,30 @@ const LANG_NAMES = {
   pl: "Polska", ko: "Koreanska", other: "Annat / Fackområde"
 };
 
+// ── Theme icons for decks ────────────────────────────────────────
+const THEME_ICONS = [
+  { icon: "📚", label: "Allmänt" },
+  { icon: "🇬🇧", label: "Engelska" },
+  { icon: "🇸🇪", label: "Svenska" },
+  { icon: "🇩🇪", label: "Tyska" },
+  { icon: "🇫🇷", label: "Franska" },
+  { icon: "🇪🇸", label: "Spanska" },
+  { icon: "🇯🇵", label: "Japanska" },
+  { icon: "🇨🇳", label: "Kinesiska" },
+  { icon: "🇰🇷", label: "Koreanska" },
+  { icon: "🔬", label: "Vetenskap" },
+  { icon: "💊", label: "Medicin" },
+  { icon: "⚖️", label: "Juridik" },
+  { icon: "💻", label: "IT/Programmering" },
+  { icon: "🧮", label: "Matematik" },
+  { icon: "🎵", label: "Musik" },
+  { icon: "🏛️", label: "Historia" },
+  { icon: "🌍", label: "Geografi" },
+  { icon: "🧪", label: "Kemi" },
+  { icon: "🎨", label: "Konst" },
+  { icon: "⭐", label: "Favoriter" },
+];
+
 // ── Router ───────────────────────────────────────────────────────
 export default function App() {
   const [session, setSession] = useState(null);
@@ -91,6 +115,7 @@ function MainApp({ session }) {
   const [tags, setTags] = useState([]);
   const [progress, setProgress] = useState({});
   const [studyFilter, setStudyFilter] = useState(null);
+  const [studyDirection, setStudyDirection] = useState("front"); // "front" | "back"
   const [lang, setLang] = useState("sv");
   const uid = session.user.id;
 
@@ -123,14 +148,16 @@ function MainApp({ session }) {
 
   function openDeck(deck) { setActiveDeck(deck); setView("home"); }
   function goToDecks() { setActiveDeck(null); setView("decks"); loadDecks(); }
-  function startStudy(tagId = null) { setStudyFilter(tagId); setView("study"); }
+  function startStudy(tagId = null, direction = "front") {
+    setStudyFilter(tagId); setStudyDirection(direction); setView("study");
+  }
 
   const T = {
-    sv: { decks: "Ordlistor", home: "Hem", study: "Träna", cards: "Kort", import: "Importera", stats: "Statistik", logout: "Logga ut" },
-    en: { decks: "Decks", home: "Home", study: "Study", cards: "Cards", import: "Import", stats: "Stats", logout: "Log out" },
+    sv: { decks: "Ordlistor", explore: "Utforska", home: "Hem", study: "Träna", cards: "Kort", import: "Importera", stats: "Statistik", logout: "Logga ut" },
+    en: { decks: "Decks", explore: "Explore", home: "Home", study: "Study", cards: "Cards", import: "Import", stats: "Stats", logout: "Log out" },
   }[lang];
 
-  const insideDeck = view !== "decks" && activeDeck;
+  const insideDeck = view !== "decks" && view !== "explore" && activeDeck;
   const navItems = insideDeck ? [
     { id: "home", icon: "⌂", label: T.home },
     { id: "study", icon: "◈", label: T.study },
@@ -145,7 +172,7 @@ function MainApp({ session }) {
         <button className="sidebar-logo" onClick={goToDecks} title="Alla ordlistor">✦</button>
         {insideDeck && (
           <div className="sidebar-deck-badge" style={{ "--dc": activeDeck.color || "#c84b2f" }}>
-            <span>{LANG_FLAGS[activeDeck.front_lang] || "📚"}</span>
+            <span>{activeDeck.theme_icon || LANG_FLAGS[activeDeck.front_lang] || "📚"}</span>
             <span className="nav-label deck-label">{activeDeck.name}</span>
           </div>
         )}
@@ -156,10 +183,16 @@ function MainApp({ session }) {
           </button>
         ))}
         {!insideDeck && (
-          <button className={cn("nav-btn", view === "decks" && "active")} onClick={goToDecks}>
-            <span className="nav-icon">◧</span>
-            <span className="nav-label">{T.decks}</span>
-          </button>
+          <>
+            <button className={cn("nav-btn", view === "decks" && "active")} onClick={goToDecks}>
+              <span className="nav-icon">◧</span>
+              <span className="nav-label">{T.decks}</span>
+            </button>
+            <button className={cn("nav-btn", view === "explore" && "active")} onClick={() => setView("explore")}>
+              <span className="nav-icon">🌐</span>
+              <span className="nav-label">{T.explore}</span>
+            </button>
+          </>
         )}
         <div className="sidebar-spacer" />
         <button className="nav-btn lang-btn" onClick={() => setLang(l => l === "sv" ? "en" : "sv")}>
@@ -171,8 +204,9 @@ function MainApp({ session }) {
       </nav>
       <main className="content">
         {view === "decks" && <DecksView decks={decks} uid={uid} lang={lang} onOpen={openDeck} onUpdate={loadDecks} />}
+        {view === "explore" && <ExploreView uid={uid} lang={lang} onImportDeck={loadDecks} />}
         {view === "home" && activeDeck && <HomeView deck={activeDeck} cards={cards} tags={tags} progress={progress} onStudy={startStudy} lang={lang} />}
-        {view === "study" && activeDeck && <StudyView cards={cards} tags={tags} progress={progress} tagFilter={studyFilter} onProgressUpdate={refreshAll} uid={uid} lang={lang} />}
+        {view === "study" && activeDeck && <StudyView cards={cards} tags={tags} progress={progress} tagFilter={studyFilter} direction={studyDirection} onProgressUpdate={refreshAll} uid={uid} lang={lang} />}
         {view === "cards" && activeDeck && <CardsView cards={cards} tags={tags} onUpdate={refreshAll} uid={uid} deckId={activeDeck.id} lang={lang} />}
         {view === "import" && activeDeck && <ImportView deck={activeDeck} cards={cards} tags={tags} onUpdate={refreshAll} uid={uid} lang={lang} />}
         {view === "stats" && activeDeck && <StatsView cards={cards} tags={tags} progress={progress} deck={activeDeck} lang={lang} />}
@@ -188,8 +222,8 @@ function DecksView({ decks, uid, lang, onOpen, onUpdate }) {
   const [cardCounts, setCardCounts] = useState({});
 
   const labels = {
-    sv: { title: "Mina ordlistor", sub: "Välj en ordlista att träna, eller skapa en ny.", newDeck: "+ Ny ordlista", noDecks: "Inga ordlistor ännu – skapa din första!", edit: "Redigera", delete: "Radera", cards: "kort", study: "Träna →", backLabel: "→" },
-    en: { title: "My decks", sub: "Choose a deck to study, or create a new one.", newDeck: "+ New deck", noDecks: "No decks yet – create your first!", edit: "Edit", delete: "Delete", cards: "cards", study: "Study →", backLabel: "→" },
+    sv: { title: "Mina ordlistor", sub: "Välj en ordlista att träna, eller skapa en ny.", newDeck: "+ Ny ordlista", noDecks: "Inga ordlistor ännu – skapa din första!", edit: "Redigera", delete: "Radera", cards: "kort", study: "Träna →", shared: "Delad", private: "Privat" },
+    en: { title: "My decks", sub: "Choose a deck to study, or create a new one.", newDeck: "+ New deck", noDecks: "No decks yet – create your first!", edit: "Edit", delete: "Delete", cards: "cards", study: "Study →", shared: "Shared", private: "Private" },
   }[lang];
 
   useEffect(() => {
@@ -210,6 +244,11 @@ function DecksView({ decks, uid, lang, onOpen, onUpdate }) {
   async function deleteDeck(id) {
     if (!confirm("Radera ordlistan och alla dess kort?")) return;
     await supabase.from("decks").delete().eq("id", id);
+    onUpdate();
+  }
+
+  async function toggleShare(deck) {
+    await supabase.from("decks").update({ is_public: !deck.is_public }).eq("id", deck.id);
     onUpdate();
   }
 
@@ -234,10 +273,12 @@ function DecksView({ decks, uid, lang, onOpen, onUpdate }) {
           const count = cardCounts[deck.id] || 0;
           const frontFlag = LANG_FLAGS[deck.front_lang] || "📚";
           const backFlag = LANG_FLAGS[deck.back_lang] || "📖";
+          const themeIcon = deck.theme_icon || frontFlag;
           return (
             <div key={deck.id} className="deck-card" style={{ "--dc": deck.color || "#c84b2f" }}>
               <div className="deck-card-body" onClick={() => onOpen(deck)}>
                 <div className="deck-lang-row">
+                  <span className="deck-theme-icon">{themeIcon}</span>
                   <span className="deck-flag-big">{frontFlag}</span>
                   <span className="deck-arrow">→</span>
                   <span className="deck-flag-big">{backFlag}</span>
@@ -247,10 +288,18 @@ function DecksView({ decks, uid, lang, onOpen, onUpdate }) {
                 <div className="deck-footer">
                   <span className="deck-count">{count} {labels.cards}</span>
                   {deck.subject && <span className="deck-subject-chip">{deck.subject}</span>}
+                  {deck.is_public && <span className="deck-shared-badge">🌐 {labels.shared}</span>}
                 </div>
               </div>
               <div className="deck-actions">
                 <button className="btn-study-deck" onClick={() => onOpen(deck)}>{labels.study}</button>
+                <button
+                  className={cn("deck-act-btn", deck.is_public && "active-share")}
+                  onClick={() => toggleShare(deck)}
+                  title={deck.is_public ? "Gör privat" : "Dela med andra"}
+                >
+                  {deck.is_public ? "🌐" : "🔒"}
+                </button>
                 <button className="deck-act-btn" onClick={() => { setEditing(deck); setShowEditor(true); }}>{labels.edit}</button>
                 <button className="deck-act-btn danger" onClick={() => deleteDeck(deck.id)}>{labels.delete}</button>
               </div>
@@ -262,12 +311,163 @@ function DecksView({ decks, uid, lang, onOpen, onUpdate }) {
   );
 }
 
+// ── Explore View (shared decks) ──────────────────────────────────
+function ExploreView({ uid, lang, onImportDeck }) {
+  const [publicDecks, setPublicDecks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [filterLang, setFilterLang] = useState("");
+  const [importing, setImporting] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [cardCounts, setCardCounts] = useState({});
+
+  const labels = {
+    sv: { title: "Utforska ordlistor", sub: "Bläddra bland ordlistor som andra användare har delat.", search: "Sök ordlistor…", allLangs: "Alla språk", import: "Importera kopia", importing: "Importerar…", imported: "Importerad!", cards: "kort", noResults: "Inga delade ordlistor hittades.", by: "av" },
+    en: { title: "Explore decks", sub: "Browse decks shared by other users.", search: "Search decks…", allLangs: "All languages", import: "Import copy", importing: "Importing…", imported: "Imported!", cards: "cards", noResults: "No shared decks found.", by: "by" },
+  }[lang];
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase.from("decks").select("*").eq("is_public", true).order("created_at", { ascending: false });
+      setPublicDecks(data || []);
+      // Load card counts for public decks
+      if (data && data.length > 0) {
+        const deckIds = data.map(d => d.id);
+        const { data: cardData } = await supabase.from("cards").select("deck_id").in("deck_id", deckIds);
+        const counts = {};
+        (cardData || []).forEach(c => { counts[c.deck_id] = (counts[c.deck_id] || 0) + 1; });
+        setCardCounts(counts);
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  const filtered = publicDecks.filter(d => {
+    // Don't show own decks
+    if (d.user_id === uid) return false;
+    const q = search.toLowerCase();
+    const matchSearch = !q || d.name.toLowerCase().includes(q) || (d.description || "").toLowerCase().includes(q) || (d.subject || "").toLowerCase().includes(q);
+    const matchLang = !filterLang || d.front_lang === filterLang || d.back_lang === filterLang;
+    return matchSearch && matchLang;
+  });
+
+  async function importDeck(deck) {
+    setImporting(deck.id); setMsg("");
+    try {
+      // Create new deck for user
+      const { data: newDeck } = await supabase.from("decks").insert({
+        user_id: uid,
+        name: deck.name + (lang === "sv" ? " (kopia)" : " (copy)"),
+        description: deck.description,
+        subject: deck.subject,
+        front_lang: deck.front_lang,
+        back_lang: deck.back_lang,
+        color: deck.color,
+        theme_icon: deck.theme_icon,
+        is_public: false,
+      }).select().single();
+
+      if (!newDeck) throw new Error("Failed to create deck");
+
+      // Copy all cards
+      const { data: sourceCards } = await supabase.from("cards").select("*").eq("deck_id", deck.id);
+      if (sourceCards && sourceCards.length > 0) {
+        const newCards = sourceCards.map(c => ({
+          user_id: uid,
+          deck_id: newDeck.id,
+          front: c.front,
+          back: c.back,
+          notes: c.notes,
+          image_url: c.image_url,
+          tags: [],
+        }));
+        for (let i = 0; i < newCards.length; i += 500) {
+          await supabase.from("cards").insert(newCards.slice(i, i + 500));
+        }
+      }
+      setMsg(labels.imported);
+      onImportDeck();
+    } catch (err) {
+      setMsg("Fel: " + err.message);
+    }
+    setImporting(null);
+  }
+
+  return (
+    <div className="view">
+      <div className="view-header">
+        <div>
+          <h1 className="view-title">{labels.title}</h1>
+          <p className="view-sub">{labels.sub}</p>
+        </div>
+      </div>
+
+      <div className="filter-row">
+        <input className="search-input" placeholder={labels.search} value={search} onChange={e => setSearch(e.target.value)} />
+        <select className="tag-select" value={filterLang} onChange={e => setFilterLang(e.target.value)}>
+          <option value="">{labels.allLangs}</option>
+          {Object.entries(LANG_NAMES).map(([k, v]) => (
+            <option key={k} value={k}>{LANG_FLAGS[k]} {v}</option>
+          ))}
+        </select>
+      </div>
+
+      {msg && <div className="import-msg" style={{ marginBottom: 16 }}>{msg}</div>}
+
+      {loading ? (
+        <p className="muted">Laddar…</p>
+      ) : filtered.length === 0 ? (
+        <p className="muted">{labels.noResults}</p>
+      ) : (
+        <div className="decks-grid">
+          {filtered.map(deck => {
+            const frontFlag = LANG_FLAGS[deck.front_lang] || "📚";
+            const backFlag = LANG_FLAGS[deck.back_lang] || "📖";
+            const themeIcon = deck.theme_icon || frontFlag;
+            const count = cardCounts[deck.id] || 0;
+            return (
+              <div key={deck.id} className="deck-card explore-card" style={{ "--dc": deck.color || "#c84b2f" }}>
+                <div className="deck-card-body">
+                  <div className="deck-lang-row">
+                    <span className="deck-theme-icon">{themeIcon}</span>
+                    <span className="deck-flag-big">{frontFlag}</span>
+                    <span className="deck-arrow">→</span>
+                    <span className="deck-flag-big">{backFlag}</span>
+                  </div>
+                  <h3 className="deck-name">{deck.name}</h3>
+                  {deck.description && <p className="deck-desc">{deck.description}</p>}
+                  <div className="deck-footer">
+                    <span className="deck-count">{count} {labels.cards}</span>
+                    {deck.subject && <span className="deck-subject-chip">{deck.subject}</span>}
+                  </div>
+                </div>
+                <div className="deck-actions">
+                  <button
+                    className="btn-study-deck"
+                    onClick={() => importDeck(deck)}
+                    disabled={importing === deck.id}
+                  >
+                    {importing === deck.id ? labels.importing : labels.import}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Deck Editor ──────────────────────────────────────────────────
 function DeckEditor({ deck, lang, onSave, onCancel }) {
-  const [data, setData] = useState(deck || { name: "", description: "", subject: "", front_lang: "en", back_lang: "sv", color: "#c84b2f" });
+  const [data, setData] = useState(deck || { name: "", description: "", subject: "", front_lang: "en", back_lang: "sv", color: "#c84b2f", theme_icon: "📚", is_public: false });
+  const [showIconPicker, setShowIconPicker] = useState(false);
+
   const labels = {
-    sv: { title: deck ? "Redigera ordlista" : "Ny ordlista", name: "Namn *", desc: "Beskrivning", subject: "Ämne / Fackområde (valfritt)", frontLang: "Framsida – språk", backLang: "Baksida – språk", color: "Kortfärg", save: "Spara", cancel: "Avbryt", ph_name: "t.ex. Engelska – Topp 1000", ph_desc: "t.ex. De vanligaste orden", ph_subj: "t.ex. Medicin, Juridik, Programmering…" },
-    en: { title: deck ? "Edit deck" : "New deck", name: "Name *", desc: "Description", subject: "Subject / Domain (optional)", frontLang: "Front – language", backLang: "Back – language", color: "Card color", save: "Save", cancel: "Cancel", ph_name: "e.g. English – Top 1000", ph_desc: "e.g. Most common words", ph_subj: "e.g. Medicine, Law, Programming…" },
+    sv: { title: deck ? "Redigera ordlista" : "Ny ordlista", name: "Namn *", desc: "Beskrivning", subject: "Ämne / Fackområde (valfritt)", frontLang: "Framsida – språk", backLang: "Baksida – språk", color: "Kortfärg", icon: "Tema-ikon", save: "Spara", cancel: "Avbryt", ph_name: "t.ex. Engelska – Topp 1000", ph_desc: "t.ex. De vanligaste orden", ph_subj: "t.ex. Medicin, Juridik, Programmering…", share: "Dela med andra användare" },
+    en: { title: deck ? "Edit deck" : "New deck", name: "Name *", desc: "Description", subject: "Subject / Domain (optional)", frontLang: "Front – language", backLang: "Back – language", color: "Card color", icon: "Theme icon", save: "Save", cancel: "Cancel", ph_name: "e.g. English – Top 1000", ph_desc: "e.g. Most common words", ph_subj: "e.g. Medicine, Law, Programming…", share: "Share with other users" },
   }[lang];
 
   const COLORS = ["#c84b2f","#2f7dc8","#2a7a4f","#8b4fc8","#c87d2f","#c82f6b","#2fbfc8","#444"];
@@ -296,6 +496,26 @@ function DeckEditor({ deck, lang, onSave, onCancel }) {
             <select className="modal-input" value={data.back_lang || "sv"} onChange={e => setData(d => ({ ...d, back_lang: e.target.value }))}>{langOptions}</select>
           </div>
         </div>
+        <label>{labels.icon}</label>
+        <div className="icon-picker-row">
+          <button className="icon-preview-btn" onClick={() => setShowIconPicker(p => !p)}>
+            {data.theme_icon || "📚"} <span style={{ fontSize: 12, marginLeft: 6 }}>▼</span>
+          </button>
+          {showIconPicker && (
+            <div className="icon-picker-grid">
+              {THEME_ICONS.map(({ icon, label }) => (
+                <button
+                  key={icon}
+                  className={cn("icon-pick-btn", data.theme_icon === icon && "selected")}
+                  title={label}
+                  onClick={() => { setData(d => ({ ...d, theme_icon: icon })); setShowIconPicker(false); }}
+                >
+                  {icon}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <label>{labels.color}</label>
         <div className="color-presets">
           {COLORS.map(c => (
@@ -303,6 +523,10 @@ function DeckEditor({ deck, lang, onSave, onCancel }) {
           ))}
           <input type="color" className="color-picker" value={data.color || "#c84b2f"} onChange={e => setData(d => ({ ...d, color: e.target.value }))} />
         </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!data.is_public} onChange={e => setData(d => ({ ...d, is_public: e.target.checked }))} />
+          🌐 {labels.share}
+        </label>
         <div className="modal-actions">
           <button className="btn-secondary" onClick={onCancel}>{labels.cancel}</button>
           <button className="btn-primary" disabled={!data.name.trim()} onClick={() => onSave(data)}>{labels.save}</button>
@@ -314,6 +538,7 @@ function DeckEditor({ deck, lang, onSave, onCancel }) {
 
 // ── Home View ────────────────────────────────────────────────────
 function HomeView({ deck, cards, tags, progress, onStudy, lang }) {
+  const [studyDir, setStudyDir] = useState("front");
   const total = cards.length;
   const studied = cards.filter(c => progress[c.id]).length;
   const correct = cards.filter(c => progress[c.id]?.correct > 0).length;
@@ -324,15 +549,15 @@ function HomeView({ deck, cards, tags, progress, onStudy, lang }) {
   }).length;
 
   const labels = {
-    sv: { subtitle: "Vad vill du träna idag?", total: "Kort totalt", studied: "Studerade", correct: "Rätt svar", due: "Att öva", studyAll: "Träna alla", studyDue: "Träna förfallna", tags: "Träna efter tagg", noTags: "Inga taggar skapade än." },
-    en: { subtitle: "What do you want to study?", total: "Total", studied: "Studied", correct: "Correct", due: "Due", studyAll: "Study all", studyDue: "Study due", tags: "Study by tag", noTags: "No tags yet." },
+    sv: { subtitle: "Vad vill du träna idag?", total: "Kort totalt", studied: "Studerade", correct: "Rätt svar", due: "Att öva", studyAll: "Träna alla", studyDue: "Träna förfallna", tags: "Träna efter tagg", noTags: "Inga taggar skapade än.", dirLabel: "Visa sida:", frontFirst: "Framsida först", backFirst: "Baksida först" },
+    en: { subtitle: "What do you want to study?", total: "Total", studied: "Studied", correct: "Correct", due: "Due", studyAll: "Study all", studyDue: "Study due", tags: "Study by tag", noTags: "No tags yet.", dirLabel: "Show side:", frontFirst: "Front first", backFirst: "Back first" },
   }[lang];
 
   return (
     <div className="view">
       <div className="deck-home-header" style={{ "--dc": deck.color || "#c84b2f" }}>
         <div className="deck-home-langs">
-          {LANG_FLAGS[deck.front_lang] || "📚"} → {LANG_FLAGS[deck.back_lang] || "📖"}
+          {deck.theme_icon || LANG_FLAGS[deck.front_lang] || "📚"} {LANG_FLAGS[deck.front_lang] || "📚"} → {LANG_FLAGS[deck.back_lang] || "📖"}
         </div>
         <h1 className="view-title">{deck.name}</h1>
         {deck.description && <p className="view-sub">{deck.description}</p>}
@@ -353,16 +578,27 @@ function HomeView({ deck, cards, tags, progress, onStudy, lang }) {
         ))}
       </div>
 
+      {/* Study direction picker */}
+      <div className="study-dir-row">
+        <span className="study-dir-label">{labels.dirLabel}</span>
+        <button className={cn("dir-btn", studyDir === "front" && "active")} onClick={() => setStudyDir("front")}>
+          ▶ {labels.frontFirst}
+        </button>
+        <button className={cn("dir-btn", studyDir === "back" && "active")} onClick={() => setStudyDir("back")}>
+          ◀ {labels.backFirst}
+        </button>
+      </div>
+
       <div className="home-actions">
-        <button className="btn-primary" onClick={() => onStudy(null)}>{labels.studyAll}</button>
-        <button className="btn-secondary" onClick={() => onStudy("due")}>{labels.studyDue} ({due})</button>
+        <button className="btn-primary" onClick={() => onStudy(null, studyDir)}>{labels.studyAll}</button>
+        <button className="btn-secondary" onClick={() => onStudy("due", studyDir)}>{labels.studyDue} ({due})</button>
       </div>
 
       <h2 className="section-title">{labels.tags}</h2>
       {tags.length === 0 ? <p className="muted">{labels.noTags}</p> : (
         <div className="tag-grid">
           {tags.map(t => (
-            <button key={t.id} className="tag-study-card" onClick={() => onStudy(t.id)} style={{ "--tag-color": t.color || "#ccc" }}>
+            <button key={t.id} className="tag-study-card" onClick={() => onStudy(t.id, studyDir)} style={{ "--tag-color": t.color || "#ccc" }}>
               <span className="tag-study-name">{t.name}</span>
               <span className="tag-study-count">{cards.filter(c => c.tags?.includes(t.id)).length} kort</span>
             </button>
@@ -374,12 +610,14 @@ function HomeView({ deck, cards, tags, progress, onStudy, lang }) {
 }
 
 // ── Study View ───────────────────────────────────────────────────
-function StudyView({ cards, tags, progress, tagFilter, onProgressUpdate, uid, lang }) {
+function StudyView({ cards, tags, progress, tagFilter, direction, onProgressUpdate, uid, lang }) {
   const [queue, setQueue] = useState([]);
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [done, setDone] = useState(false);
   const [sessionStats, setSessionStats] = useState({ correct: 0, wrong: 0 });
+
+  const showBackFirst = direction === "back";
 
   const labels = {
     sv: { flip: "Visa svar", correct: "Rätt", wrong: "Fel", finished: "Klart!", sessionDone: "Du har gått igenom alla kort!", correctLbl: "Rätt", wrongLbl: "Fel", restart: "Börja om", noCards: "Inga kort matchar filtret.", front: "Framsida", back: "Baksida" },
@@ -398,6 +636,12 @@ function StudyView({ cards, tags, progress, tagFilter, onProgressUpdate, uid, la
   }, [cards, tagFilter, progress]);
 
   const card = queue[idx];
+
+  // When showBackFirst, we show "back" content on front of card and vice versa
+  const questionText = showBackFirst ? card?.back : card?.front;
+  const answerText = showBackFirst ? card?.front : card?.back;
+  const questionLabel = showBackFirst ? labels.back : labels.front;
+  const answerLabel = showBackFirst ? labels.front : labels.back;
 
   async function recordAnswer(correct) {
     if (!card) return;
@@ -438,12 +682,15 @@ function StudyView({ cards, tags, progress, tagFilter, onProgressUpdate, uid, la
     <div className="view study-view">
       <div className="study-progress-bar"><div className="study-progress-fill" style={{ width: `${(idx / queue.length) * 100}%` }} /></div>
       <div className="study-counter">{idx + 1} / {queue.length}</div>
+      {showBackFirst && (
+        <div className="study-dir-badge">◀ {labels.back} → {labels.front}</div>
+      )}
       <div className={cn("flashcard", flipped && "flipped")} onClick={() => setFlipped(f => !f)}>
         <div className="flashcard-inner">
           <div className="flashcard-front">
-            <div className="card-side-label">{labels.front}</div>
-            {card?.image_url && <img src={card.image_url} alt={card.front} className="card-image" />}
-            <div className="card-text">{card?.front}</div>
+            <div className="card-side-label">{questionLabel}</div>
+            {!showBackFirst && card?.image_url && <img src={card.image_url} alt={card.front} className="card-image" />}
+            <div className="card-text">{questionText}</div>
             {card?.tags?.length > 0 && (
               <div className="card-tags-row">
                 {card.tags.map(tid => { const t = tags.find(t => t.id === tid); return t ? <span key={tid} className="card-tag-pill" style={{ background: t.color || "#666" }}>{t.name}</span> : null; })}
@@ -451,9 +698,10 @@ function StudyView({ cards, tags, progress, tagFilter, onProgressUpdate, uid, la
             )}
           </div>
           <div className="flashcard-back">
-            <div className="card-side-label">{labels.back}</div>
-            <div className="card-text card-back-text">{card?.back}</div>
-            {card?.notes && <div className="card-notes">{card.notes}</div>}
+            <div className="card-side-label">{answerLabel}</div>
+            <div className="card-text card-back-text">{answerText}</div>
+            {!showBackFirst && card?.notes && <div className="card-notes">{card.notes}</div>}
+            {showBackFirst && card?.image_url && <img src={card.image_url} alt="" className="card-image" />}
           </div>
         </div>
       </div>
@@ -559,6 +807,7 @@ function CardEditor({ card, tags, labels, onSave, onCancel }) {
         <input className="modal-input" value={data.notes || ""} onChange={e => setData(d => ({ ...d, notes: e.target.value }))} />
         <label>{labels.tags}</label>
         <div className="tag-picker">
+          {tags.length === 0 && <span style={{ fontSize: 13, color: "#999" }}>Inga taggar ännu – skapa taggar via "Taggar"-knappen</span>}
           {tags.map(t => (
             <button key={t.id} className={cn("tag-pill-btn", data.tags?.includes(t.id) && "selected")} style={{ "--tc": t.color || "#888" }} onClick={() => toggleTag(t.id)}>{t.name}</button>
           ))}
@@ -620,8 +869,8 @@ function ImportView({ deck, cards, tags, onUpdate, uid, lang }) {
 
   const isEnSv = ["en","sv"].includes(deck.front_lang) && ["en","sv"].includes(deck.back_lang);
   const labels = {
-    sv: { title: "Importera kort", csvFormat: "Format: framsida,baksida,anteckningar", previewBtn: "Förhandsgranska", importBtn: "Importera", cancel: "Rensa", top1000: "Importera topp 1000 engelska ord", top1000Desc: "De 1000 vanligaste engelska orden med svenska översättningar (kräver EN↔SV-ordlista).", importedMsg: n => `${n} kort importerade!` },
-    en: { title: "Import cards", csvFormat: "Format: front,back,notes", previewBtn: "Preview", importBtn: "Import", cancel: "Clear", top1000: "Import top 1000 English words", top1000Desc: "1000 most common English words with Swedish translations (requires EN↔SV deck).", importedMsg: n => `${n} cards imported!` },
+    sv: { title: "Importera kort", csvFormat: "Format: framsida,baksida,anteckningar", previewBtn: "Förhandsgranska", importBtn: "Importera", cancel: "Rensa", top1000: "Importera topp 1000 engelska ord", top1000Desc: "De 1000 vanligaste engelska orden med svenska översättningar (kräver EN↔SV-ordlista).", importedMsg: n => `${n} kort importerade!`, tagsLabel: "Tilldela taggar (valfritt):" },
+    en: { title: "Import cards", csvFormat: "Format: front,back,notes", previewBtn: "Preview", importBtn: "Import", cancel: "Clear", top1000: "Import top 1000 English words", top1000Desc: "1000 most common English words with Swedish translations (requires EN↔SV deck).", importedMsg: n => `${n} cards imported!`, tagsLabel: "Assign tags (optional):" },
   }[lang];
 
   function parseCSV(text) {
@@ -655,13 +904,21 @@ function ImportView({ deck, cards, tags, onUpdate, uid, lang }) {
   return (
     <div className="view">
       <h1 className="view-title">{labels.title}</h1>
+
+      {/* Tag assignment for import */}
+      {tags.length > 0 && (
+        <div className="import-section">
+          <p style={{ fontSize: 13, color: "#666", marginBottom: 8 }}>{labels.tagsLabel}</p>
+          <div className="tag-picker">
+            {tags.map(t => <button key={t.id} className={cn("tag-pill-btn", selectedTags.includes(t.id) && "selected")} style={{ "--tc": t.color || "#888" }} onClick={() => toggleTag(t.id)}>{t.name}</button>)}
+          </div>
+        </div>
+      )}
+
       {isEnSv && (
         <div className="import-section">
           <h2 className="section-title">{labels.top1000}</h2>
           <p className="muted">{labels.top1000Desc}</p>
-          <div className="tag-picker" style={{ marginBottom: 12 }}>
-            {tags.map(t => <button key={t.id} className={cn("tag-pill-btn", selectedTags.includes(t.id) && "selected")} style={{ "--tc": t.color || "#888" }} onClick={() => toggleTag(t.id)}>{t.name}</button>)}
-          </div>
           <button className="btn-primary" onClick={importTop1000} disabled={loadingTop1000}>{loadingTop1000 ? "Importerar…" : labels.top1000}</button>
         </div>
       )}
@@ -669,9 +926,6 @@ function ImportView({ deck, cards, tags, onUpdate, uid, lang }) {
         <h2 className="section-title">CSV</h2>
         <p className="muted">{labels.csvFormat}</p>
         <textarea className="csv-input" rows={10} placeholder="the,det,artikel&#10;be,vara,verb" value={csvText} onChange={e => setCsvText(e.target.value)} />
-        <div className="tag-picker">
-          {tags.map(t => <button key={t.id} className={cn("tag-pill-btn", selectedTags.includes(t.id) && "selected")} style={{ "--tc": t.color || "#888" }} onClick={() => toggleTag(t.id)}>{t.name}</button>)}
-        </div>
         <div className="import-actions">
           <button className="btn-secondary" onClick={() => { setCsvText(""); setPreview([]); }}>{labels.cancel}</button>
           <button className="btn-secondary" onClick={() => { setPreview(parseCSV(csvText)); setMsg(""); }}>{labels.previewBtn}</button>
@@ -744,5 +998,5 @@ function StatsView({ cards, tags, progress, deck, lang }) {
 
 // ── Top 1000 EN→SV ───────────────────────────────────────────────
 function getTop1000() {
-  return [{front:"the",back:"det/den/de",notes:"artikel"},{front:"be",back:"vara",notes:"verb"},{front:"to",back:"till/att",notes:"prep/inf"},{front:"of",back:"av/om",notes:"preposition"},{front:"and",back:"och",notes:"konjunktion"},{front:"a",back:"en/ett",notes:"artikel"},{front:"in",back:"i/in",notes:"preposition"},{front:"that",back:"att/det/som",notes:"konj/pron"},{front:"have",back:"ha",notes:"verb"},{front:"it",back:"det",notes:"pronomen"},{front:"for",back:"för",notes:"preposition"},{front:"not",back:"inte",notes:"adverb"},{front:"on",back:"på",notes:"preposition"},{front:"with",back:"med",notes:"preposition"},{front:"he",back:"han",notes:"pronomen"},{front:"as",back:"som/när",notes:"konjunktion"},{front:"you",back:"du/ni",notes:"pronomen"},{front:"do",back:"göra",notes:"verb"},{front:"at",back:"vid/på",notes:"preposition"},{front:"this",back:"detta",notes:"pronomen"},{front:"but",back:"men",notes:"konjunktion"},{front:"his",back:"hans",notes:"pronomen"},{front:"by",back:"av/med",notes:"preposition"},{front:"from",back:"från",notes:"preposition"},{front:"they",back:"de",notes:"pronomen"},{front:"we",back:"vi",notes:"pronomen"},{front:"say",back:"säga",notes:"verb"},{front:"her",back:"henne/hennes",notes:"pronomen"},{front:"she",back:"hon",notes:"pronomen"},{front:"or",back:"eller",notes:"konjunktion"},{front:"an",back:"en/ett",notes:"artikel"},{front:"will",back:"kommer att",notes:"hjälpverb"},{front:"my",back:"min/mitt",notes:"pronomen"},{front:"one",back:"en/man",notes:"räkneord"},{front:"all",back:"alla/allt",notes:"pronomen"},{front:"would",back:"skulle",notes:"hjälpverb"},{front:"there",back:"där/det",notes:"adverb"},{front:"their",back:"deras",notes:"pronomen"},{front:"what",back:"vad",notes:"pronomen"},{front:"so",back:"så",notes:"adverb"},{front:"up",back:"upp",notes:"adverb"},{front:"out",back:"ut",notes:"adverb"},{front:"if",back:"om",notes:"konjunktion"},{front:"about",back:"om/ungefär",notes:"preposition"},{front:"who",back:"vem/som",notes:"pronomen"},{front:"get",back:"få/skaffa",notes:"verb"},{front:"which",back:"vilket/som",notes:"pronomen"},{front:"go",back:"gå/åka",notes:"verb"},{front:"me",back:"mig",notes:"pronomen"},{front:"when",back:"när",notes:"konjunktion"},{front:"make",back:"göra/tillverka",notes:"verb"},{front:"can",back:"kan",notes:"hjälpverb"},{front:"like",back:"gilla/som",notes:"verb/prep"},{front:"time",back:"tid/gång",notes:"substantiv"},{front:"no",back:"nej/ingen",notes:"adverb"},{front:"just",back:"bara/just",notes:"adverb"},{front:"him",back:"honom",notes:"pronomen"},{front:"know",back:"veta/känna",notes:"verb"},{front:"take",back:"ta",notes:"verb"},{front:"people",back:"folk/människor",notes:"substantiv"},{front:"into",back:"in i",notes:"preposition"},{front:"year",back:"år",notes:"substantiv"},{front:"your",back:"din/ditt",notes:"pronomen"},{front:"good",back:"bra/god",notes:"adjektiv"},{front:"some",back:"några/lite",notes:"pronomen"},{front:"could",back:"kunde",notes:"hjälpverb"},{front:"them",back:"dem",notes:"pronomen"},{front:"see",back:"se",notes:"verb"},{front:"other",back:"annan/andra",notes:"adjektiv"},{front:"than",back:"än",notes:"konjunktion"},{front:"then",back:"sedan/då",notes:"adverb"},{front:"now",back:"nu",notes:"adverb"},{front:"look",back:"titta/se ut",notes:"verb"},{front:"only",back:"bara/enda",notes:"adverb"},{front:"come",back:"komma",notes:"verb"},{front:"its",back:"dess",notes:"pronomen"},{front:"over",back:"över",notes:"preposition"},{front:"think",back:"tänka/tro",notes:"verb"},{front:"also",back:"också",notes:"adverb"},{front:"back",back:"tillbaka/rygg",notes:"adverb/subst"},{front:"after",back:"efter",notes:"preposition"},{front:"use",back:"använda",notes:"verb"},{front:"two",back:"två",notes:"räkneord"},{front:"how",back:"hur",notes:"adverb"},{front:"our",back:"vår/våra",notes:"pronomen"},{front:"work",back:"arbeta/arbete",notes:"verb/subst"},{front:"first",back:"första",notes:"ordningstal"},{front:"well",back:"bra/brunn",notes:"adverb/subst"},{front:"way",back:"väg/sätt",notes:"substantiv"},{front:"even",back:"till och med/jämn",notes:"adverb"},{front:"new",back:"ny",notes:"adjektiv"},{front:"want",back:"vilja",notes:"verb"},{front:"because",back:"för att/eftersom",notes:"konjunktion"},{front:"any",back:"någon/något",notes:"pronomen"},{front:"these",back:"dessa",notes:"pronomen"},{front:"give",back:"ge",notes:"verb"},{front:"day",back:"dag",notes:"substantiv"},{front:"most",back:"mest/flest",notes:"adverb"},{front:"us",back:"oss",notes:"pronomen"},{front:"between",back:"mellan",notes:"preposition"},{front:"need",back:"behöva",notes:"verb"},{front:"large",back:"stor",notes:"adjektiv"},{front:"often",back:"ofta",notes:"adverb"},{front:"hand",back:"hand",notes:"substantiv"},{front:"high",back:"hög",notes:"adjektiv"},{front:"place",back:"plats",notes:"substantiv"},{front:"hold",back:"hålla",notes:"verb"},{front:"free",back:"fri/gratis",notes:"adjektiv"},{front:"real",back:"verklig",notes:"adjektiv"},{front:"life",back:"liv",notes:"substantiv"},{front:"few",back:"få",notes:"adjektiv"},{front:"north",back:"norr",notes:"substantiv"},{front:"open",back:"öppna/öppen",notes:"verb/adj"},{front:"seem",back:"verka/tyckas",notes:"verb"},{front:"together",back:"tillsammans",notes:"adverb"},{front:"next",back:"nästa",notes:"adjektiv"},{front:"white",back:"vit",notes:"adjektiv"},{front:"children",back:"barn",notes:"subst (pl)"},{front:"begin",back:"börja",notes:"verb"},{front:"walk",back:"gå/promenad",notes:"verb/subst"},{front:"example",back:"exempel",notes:"substantiv"},{front:"always",back:"alltid",notes:"adverb"},{front:"music",back:"musik",notes:"substantiv"},{front:"those",back:"de/dem",notes:"pronomen"},{front:"both",back:"båda",notes:"pronomen"},{front:"book",back:"bok",notes:"substantiv"},{front:"letter",back:"brev/bokstav",notes:"substantiv"},{front:"until",back:"tills/till",notes:"konjunktion"},{front:"river",back:"flod",notes:"substantiv"},{front:"car",back:"bil",notes:"substantiv"},{front:"care",back:"bry sig om",notes:"verb"},{front:"second",back:"andra/sekund",notes:"ordningstal/subst"},{front:"enough",back:"tillräckligt",notes:"adverb"},{front:"girl",back:"flicka/tjej",notes:"substantiv"},{front:"young",back:"ung",notes:"adjektiv"},{front:"ready",back:"redo",notes:"adjektiv"},{front:"above",back:"ovanför",notes:"preposition"},{front:"ever",back:"någonsin",notes:"adverb"},{front:"red",back:"röd",notes:"adjektiv"},{front:"though",back:"fast/trots att",notes:"konjunktion"},{front:"feel",back:"känna sig",notes:"verb"},{front:"talk",back:"prata",notes:"verb"},{front:"bird",back:"fågel",notes:"substantiv"},{front:"soon",back:"snart",notes:"adverb"},{front:"body",back:"kropp",notes:"substantiv"},{front:"dog",back:"hund",notes:"substantiv"},{front:"family",back:"familj",notes:"substantiv"},{front:"leave",back:"lämna",notes:"verb"},{front:"song",back:"sång/låt",notes:"substantiv"},{front:"door",back:"dörr",notes:"substantiv"},{front:"black",back:"svart",notes:"adjektiv"},{front:"short",back:"kort/låg",notes:"adjektiv"},{front:"question",back:"fråga",notes:"substantiv"},{front:"happen",back:"hända",notes:"verb"},{front:"ship",back:"fartyg",notes:"substantiv"},{front:"area",back:"område",notes:"substantiv"},{front:"half",back:"halv/hälften",notes:"adj/subst"},{front:"rock",back:"sten/klippa",notes:"substantiv"},{front:"fire",back:"eld",notes:"substantiv"},{front:"south",back:"söder",notes:"substantiv"},{front:"problem",back:"problem",notes:"substantiv"},{front:"piece",back:"bit/stycke",notes:"substantiv"},{front:"since",back:"sedan/eftersom",notes:"prep/konj"},{front:"top",back:"topp",notes:"substantiv"},{front:"whole",back:"hel",notes:"adjektiv"},{front:"king",back:"kung",notes:"substantiv"},{front:"space",back:"rymd/utrymme",notes:"substantiv"},{front:"best",back:"bäst",notes:"superlativ"},{front:"hour",back:"timme",notes:"substantiv"},{front:"better",back:"bättre",notes:"komparativ"},{front:"true",back:"sann",notes:"adjektiv"},{front:"during",back:"under (tid)",notes:"preposition"},{front:"hundred",back:"hundra",notes:"räkneord"},{front:"five",back:"fem",notes:"räkneord"},{front:"remember",back:"komma ihåg",notes:"verb"},{front:"step",back:"steg",notes:"substantiv"},{front:"early",back:"tidig",notes:"adjektiv"},{front:"west",back:"väster",notes:"substantiv"},{front:"ground",back:"mark/grund",notes:"substantiv"},{front:"interest",back:"intresse",notes:"substantiv"},{front:"reach",back:"nå",notes:"verb"},{front:"fast",back:"snabb",notes:"adjektiv"},{front:"sing",back:"sjunga",notes:"verb"},{front:"listen",back:"lyssna",notes:"verb"},{front:"six",back:"sex",notes:"räkneord"},{front:"table",back:"bord",notes:"substantiv"},{front:"travel",back:"resa",notes:"verb/subst"},{front:"less",back:"mindre",notes:"adverb"},{front:"morning",back:"morgon",notes:"substantiv"},{front:"ten",back:"tio",notes:"räkneord"},{front:"simple",back:"enkel",notes:"adjektiv"},{front:"several",back:"flera",notes:"adjektiv"},{front:"war",back:"krig",notes:"substantiv"},{front:"against",back:"mot/emot",notes:"preposition"},{front:"pattern",back:"mönster",notes:"substantiv"},{front:"slow",back:"långsam",notes:"adjektiv"},{front:"center",back:"centrum",notes:"substantiv"},{front:"love",back:"kärlek/älska",notes:"subst/verb"},{front:"person",back:"person",notes:"substantiv"},{front:"money",back:"pengar",notes:"substantiv"},{front:"appear",back:"dyka upp",notes:"verb"},{front:"road",back:"väg",notes:"substantiv"},{front:"map",back:"karta",notes:"substantiv"},{front:"rain",back:"regn/regna",notes:"subst/verb"},{front:"rule",back:"regel/regera",notes:"subst/verb"},{front:"cold",back:"kall/förkylning",notes:"adj/subst"},{front:"voice",back:"röst",notes:"substantiv"},{front:"energy",back:"energi",notes:"substantiv"},{front:"bed",back:"säng",notes:"substantiv"},{front:"brother",back:"bror",notes:"substantiv"},{front:"egg",back:"ägg",notes:"substantiv"},{front:"ride",back:"rida/åka",notes:"verb"},{front:"believe",back:"tro/tycka",notes:"verb"},{front:"forest",back:"skog",notes:"substantiv"},{front:"sit",back:"sitta",notes:"verb"},{front:"window",back:"fönster",notes:"substantiv"},{front:"store",back:"affär/lagra",notes:"subst/verb"},{front:"summer",back:"sommar",notes:"substantiv"},{front:"train",back:"träna/tåg",notes:"verb/subst"},{front:"sleep",back:"sova",notes:"verb"},{front:"leg",back:"ben",notes:"substantiv"},{front:"wall",back:"vägg",notes:"substantiv"},{front:"catch",back:"fånga",notes:"verb"},{front:"wish",back:"önska",notes:"verb"},{front:"sky",back:"himmel",notes:"substantiv"},{front:"joy",back:"glädje",notes:"substantiv"},{front:"winter",back:"vinter",notes:"substantiv"},{front:"wild",back:"vild",notes:"adjektiv"},{front:"glass",back:"glas",notes:"substantiv"},{front:"grass",back:"gräs",notes:"substantiv"},{front:"cow",back:"ko",notes:"substantiv"},{front:"job",back:"jobb",notes:"substantiv"},{front:"sign",back:"tecken/skylt",notes:"substantiv"},{front:"visit",back:"besöka",notes:"verb"},{front:"past",back:"förfluten/förbi",notes:"adj/adv"},{front:"soft",back:"mjuk",notes:"adjektiv"},{front:"fun",back:"roligt",notes:"adjektiv"},{front:"bright",back:"ljus/intelligent",notes:"adjektiv"},{front:"weather",back:"väder",notes:"substantiv"},{front:"month",back:"månad",notes:"substantiv"},{front:"million",back:"miljon",notes:"räkneord"},{front:"bear",back:"björn/bära",notes:"subst/verb"},{front:"finish",back:"avsluta",notes:"verb"},{front:"happy",back:"glad/lycklig",notes:"adjektiv"},{front:"hope",back:"hoppas/hopp",notes:"verb/subst"},{front:"flower",back:"blomma",notes:"substantiv"},{front:"strange",back:"konstig",notes:"adjektiv"},{front:"jump",back:"hoppa",notes:"verb"},{front:"baby",back:"baby/bebis",notes:"substantiv"},{front:"eight",back:"åtta",notes:"räkneord"},{front:"village",back:"by",notes:"substantiv"},{front:"meet",back:"möta",notes:"verb"},{front:"root",back:"rot",notes:"substantiv"},{front:"buy",back:"köpa",notes:"verb"},{front:"raise",back:"höja/uppfostra",notes:"verb"},{front:"solve",back:"lösa",notes:"verb"},{front:"metal",back:"metall",notes:"substantiv"},{front:"whether",back:"om/huruvida",notes:"konjunktion"},{front:"push",back:"trycka",notes:"verb"},{front:"seven",back:"sju",notes:"räkneord"},{front:"third",back:"tredje",notes:"ordningstal"},{front:"hair",back:"hår",notes:"substantiv"},{front:"describe",back:"beskriva",notes:"verb"},{front:"cook",back:"laga mat/kock",notes:"verb/subst"},{front:"floor",back:"golv/våning",notes:"substantiv"},{front:"result",back:"resultat",notes:"substantiv"},{front:"burn",back:"bränna/brinna",notes:"verb"},{front:"hill",back:"kulle",notes:"substantiv"},{front:"safe",back:"säker",notes:"adjektiv"},{front:"cat",back:"katt",notes:"substantiv"},{front:"century",back:"sekel",notes:"substantiv"},{front:"type",back:"typ/skriva",notes:"subst/verb"},{front:"law",back:"lag",notes:"substantiv"},{front:"coast",back:"kust",notes:"substantiv"},{front:"silent",back:"tyst",notes:"adjektiv"},{front:"tall",back:"lång (person)",notes:"adjektiv"},{front:"sand",back:"sand",notes:"substantiv"},{front:"soil",back:"jord",notes:"substantiv"},{front:"roll",back:"rulla",notes:"verb"},{front:"temperature",back:"temperatur",notes:"substantiv"},{front:"finger",back:"finger",notes:"substantiv"},{front:"industry",back:"industri",notes:"substantiv"},{front:"value",back:"värde",notes:"substantiv"},{front:"fight",back:"slåss/kamp",notes:"verb/subst"},{front:"natural",back:"naturlig",notes:"adjektiv"},{front:"view",back:"utsikt/se",notes:"subst/verb"},{front:"sense",back:"känsla/sinne",notes:"substantiv"},{front:"ear",back:"öra",notes:"substantiv"},{front:"quite",back:"ganska",notes:"adverb"},{front:"case",back:"fall/väska",notes:"substantiv"},{front:"middle",back:"mitten",notes:"substantiv"},{front:"kill",back:"döda",notes:"verb"},{front:"son",back:"son",notes:"substantiv"},{front:"lake",back:"sjö",notes:"substantiv"},{front:"moment",back:"ögonblick",notes:"substantiv"},{front:"scale",back:"skala",notes:"substantiv"},{front:"loud",back:"hög/högljudd",notes:"adjektiv"},{front:"spring",back:"vår/fjäder",notes:"substantiv"},{front:"child",back:"barn",notes:"substantiv"},{front:"straight",back:"rak",notes:"adjektiv"},{front:"nation",back:"nation",notes:"substantiv"},{front:"milk",back:"mjölk",notes:"substantiv"},{front:"speed",back:"hastighet",notes:"substantiv"},{front:"method",back:"metod",notes:"substantiv"},{front:"pay",back:"betala",notes:"verb"},{front:"age",back:"ålder",notes:"substantiv"},{front:"dress",back:"klänning/klä",notes:"subst/verb"},{front:"cloud",back:"moln",notes:"substantiv"},{front:"quiet",back:"tyst/lugn",notes:"adjektiv"},{front:"stone",back:"sten",notes:"substantiv"},{front:"tiny",back:"pytteliten",notes:"adjektiv"},{front:"climb",back:"klättra",notes:"verb"},{front:"cool",back:"sval/cool",notes:"adjektiv"},{front:"design",back:"design",notes:"substantiv"},{front:"poor",back:"fattig/dålig",notes:"adjektiv"},{front:"experiment",back:"experiment",notes:"substantiv"},{front:"bottom",back:"botten",notes:"substantiv"},{front:"key",back:"nyckel",notes:"substantiv"},{front:"iron",back:"järn",notes:"substantiv"},{front:"single",back:"enstaka",notes:"adjektiv"},{front:"flat",back:"platt/lägenhet",notes:"adj/subst"},{front:"twenty",back:"tjugo",notes:"räkneord"},{front:"skin",back:"hud",notes:"substantiv"},{front:"smile",back:"le/leende",notes:"verb/subst"},{front:"trade",back:"handel",notes:"substantiv"},{front:"melody",back:"melodi",notes:"substantiv"},{front:"trip",back:"resa",notes:"substantiv"},{front:"office",back:"kontor",notes:"substantiv"},{front:"receive",back:"ta emot",notes:"verb"},{front:"mouth",back:"mun",notes:"substantiv"},{front:"symbol",back:"symbol",notes:"substantiv"},{front:"die",back:"dö",notes:"verb"},{front:"least",back:"minst",notes:"adverb"},{front:"trouble",back:"problem/besvär",notes:"substantiv"},{front:"shout",back:"ropa/skrika",notes:"verb"},{front:"except",back:"utom",notes:"preposition"},{front:"seed",back:"frö",notes:"substantiv"},{front:"join",back:"gå med i",notes:"verb"},{front:"suggest",back:"föreslå",notes:"verb"},{front:"clean",back:"ren/städa",notes:"adj/verb"},{front:"break",back:"bryta/paus",notes:"verb/subst"},{front:"yard",back:"gård",notes:"substantiv"},{front:"rise",back:"stiga",notes:"verb"},{front:"bad",back:"dålig",notes:"adjektiv"},{front:"blow",back:"blåsa",notes:"verb"},{front:"oil",back:"olja",notes:"substantiv"},{front:"blood",back:"blod",notes:"substantiv"},{front:"touch",back:"röra/beröring",notes:"verb/subst"},{front:"mix",back:"blanda",notes:"verb"},{front:"team",back:"lag/team",notes:"substantiv"},{front:"cost",back:"kosta/kostnad",notes:"verb/subst"},{front:"brown",back:"brun",notes:"adjektiv"},{front:"wear",back:"bära/ha på sig",notes:"verb"},{front:"garden",back:"trädgård",notes:"substantiv"},{front:"equal",back:"lika",notes:"adjektiv"},{front:"choose",back:"välja",notes:"verb"},{front:"fit",back:"passa",notes:"verb"},{front:"flow",back:"flöda",notes:"verb"},{front:"fair",back:"rättvis",notes:"adjektiv"},{front:"bank",back:"bank",notes:"substantiv"},{front:"collect",back:"samla",notes:"verb"},{front:"save",back:"spara/rädda",notes:"verb"},{front:"control",back:"kontrollera",notes:"verb"},{front:"gentle",back:"mild/varsam",notes:"adjektiv"},{front:"woman",back:"kvinna",notes:"substantiv"},{front:"captain",back:"kapten",notes:"substantiv"},{front:"practice",back:"träna/öva",notes:"verb"},{front:"separate",back:"separat",notes:"adjektiv"},{front:"difficult",back:"svår",notes:"adjektiv"},{front:"doctor",back:"läkare",notes:"substantiv"},{front:"protect",back:"skydda",notes:"verb"},{front:"ring",back:"ring/ringa",notes:"subst/verb"},{front:"character",back:"karaktär",notes:"substantiv"},{front:"insect",back:"insekt",notes:"substantiv"},{front:"period",back:"period",notes:"substantiv"},{front:"radio",back:"radio",notes:"substantiv"},{front:"atom",back:"atom",notes:"substantiv"},{front:"human",back:"människa",notes:"substantiv"},{front:"history",back:"historia",notes:"substantiv"},{front:"effect",back:"effekt",notes:"substantiv"},{front:"electric",back:"elektrisk",notes:"adjektiv"},{front:"expect",back:"förvänta sig",notes:"verb"},{front:"modern",back:"modern",notes:"adjektiv"},{front:"element",back:"element",notes:"substantiv"},{front:"hit",back:"slå/träffa",notes:"verb"},{front:"student",back:"student",notes:"substantiv"},{front:"corner",back:"hörn",notes:"substantiv"},{front:"supply",back:"leverera",notes:"verb"},{front:"bone",back:"ben (skelett)",notes:"substantiv"},{front:"imagine",back:"föreställa sig",notes:"verb"},{front:"provide",back:"tillhandahålla",notes:"verb"},{front:"agree",back:"hålla med",notes:"verb"},{front:"capital",back:"kapital/huvudstad",notes:"substantiv"},{front:"chair",back:"stol",notes:"substantiv"},{front:"danger",back:"fara",notes:"substantiv"},{front:"fruit",back:"frukt",notes:"substantiv"},{front:"rich",back:"rik",notes:"adjektiv"},{front:"thick",back:"tjock",notes:"adjektiv"},{front:"soldier",back:"soldat",notes:"substantiv"},{front:"process",back:"process",notes:"substantiv"},{front:"guess",back:"gissa",notes:"verb"},{front:"necessary",back:"nödvändig",notes:"adjektiv"},{front:"sharp",back:"skarp",notes:"adjektiv"},{front:"wing",back:"vinge",notes:"substantiv"},{front:"create",back:"skapa",notes:"verb"},{front:"neighbor",back:"granne",notes:"substantiv"},{front:"wash",back:"tvätta",notes:"verb"},{front:"crowd",back:"folkmassa",notes:"substantiv"},{front:"compare",back:"jämföra",notes:"verb"},{front:"poem",back:"dikt",notes:"substantiv"},{front:"bell",back:"klocka/ringklocka",notes:"substantiv"},{front:"depend",back:"bero på",notes:"verb"},{front:"meat",back:"kött",notes:"substantiv"},{front:"tube",back:"rör",notes:"substantiv"},{front:"famous",back:"berömd",notes:"adjektiv"},{front:"dollar",back:"dollar",notes:"substantiv"},{front:"stream",back:"ström/bäck",notes:"substantiv"},{front:"fear",back:"rädsla/frukta",notes:"subst/verb"},{front:"sight",back:"syn",notes:"substantiv"},{front:"thin",back:"tunn/smal",notes:"adjektiv"},{front:"planet",back:"planet",notes:"substantiv"},{front:"hurry",back:"skynda",notes:"verb"},{front:"chief",back:"chef/hövding",notes:"substantiv"},{front:"clock",back:"klocka",notes:"substantiv"},{front:"enter",back:"gå in",notes:"verb"},{front:"major",back:"viktig",notes:"adjektiv"},{front:"fresh",back:"fräsch/färsk",notes:"adjektiv"},{front:"search",back:"söka",notes:"verb"},{front:"send",back:"skicka",notes:"verb"},{front:"yellow",back:"gul",notes:"adjektiv"},{front:"allow",back:"tillåta",notes:"verb"},{front:"print",back:"skriva ut",notes:"verb"},{front:"dead",back:"död",notes:"adjektiv"},{front:"spot",back:"fläck/plats",notes:"substantiv"},{front:"suit",back:"kostym/passa",notes:"subst/verb"},{front:"current",back:"ström/nuvarande",notes:"subst/adj"},{front:"lift",back:"lyfta/hiss",notes:"verb/subst"},{front:"arrive",back:"anlända",notes:"verb"},{front:"master",back:"bemästra",notes:"verb"},{front:"track",back:"spår",notes:"substantiv"},{front:"parent",back:"förälder",notes:"substantiv"},{front:"shore",back:"strand",notes:"substantiv"},{front:"sheet",back:"lakan/blad",notes:"substantiv"},{front:"connect",back:"ansluta",notes:"verb"},{front:"spend",back:"spendera",notes:"verb"},{front:"fat",back:"fett/tjock",notes:"subst/adj"},{front:"glad",back:"glad",notes:"adjektiv"},{front:"original",back:"ursprunglig",notes:"adjektiv"},{front:"share",back:"dela",notes:"verb"},{front:"station",back:"station",notes:"substantiv"},{front:"bread",back:"bröd",notes:"substantiv"},{front:"charge",back:"ladda/avgift",notes:"verb/subst"},{front:"proper",back:"riktig",notes:"adjektiv"},{front:"bar",back:"bar/stång",notes:"substantiv"},{front:"offer",back:"erbjuda",notes:"verb"},{front:"dream",back:"dröm/drömma",notes:"subst/verb"},{front:"evening",back:"kväll",notes:"substantiv"},{front:"condition",back:"tillstånd/villkor",notes:"substantiv"},{front:"feed",back:"mata",notes:"verb"},{front:"tool",back:"verktyg",notes:"substantiv"},{front:"total",back:"total",notes:"adjektiv"},{front:"basic",back:"grundläggande",notes:"adjektiv"},{front:"smell",back:"lukta/lukt",notes:"verb/subst"},{front:"valley",back:"dal",notes:"substantiv"},{front:"double",back:"dubbel",notes:"adjektiv"},{front:"seat",back:"plats/säte",notes:"substantiv"},{front:"wood",back:"trä/skog",notes:"substantiv"},{front:"light",back:"ljus/lätt",notes:"subst/adj"},{front:"power",back:"kraft/makt",notes:"substantiv"},{front:"town",back:"stad/by",notes:"substantiv"},{front:"fine",back:"bra/fin",notes:"adjektiv"},{front:"drive",back:"köra/driva",notes:"verb"},{front:"watch",back:"titta på/klocka",notes:"verb/subst"},{front:"color",back:"färg",notes:"substantiv"},{front:"face",back:"ansikte",notes:"substantiv"},{front:"main",back:"huvud-/viktigast",notes:"adjektiv"},{front:"land",back:"land/landa",notes:"subst/verb"},{front:"home",back:"hem",notes:"substantiv"},{front:"hand",back:"hand",notes:"substantiv"},{front:"large",back:"stor",notes:"adjektiv"},{front:"turn",back:"svänga/tur",notes:"verb/subst"},{front:"move",back:"flytta/röra",notes:"verb"},{front:"live",back:"leva/bo",notes:"verb"},{front:"every",back:"varje",notes:"adjektiv"},{front:"might",back:"kanske/makt",notes:"hjälpverb/subst"},{front:"still",back:"fortfarande/stilla",notes:"adverb/adj"},{front:"try",back:"försöka",notes:"verb"},{front:"ask",back:"fråga",notes:"verb"},{front:"need",back:"behöva/behov",notes:"verb/subst"},{front:"too",back:"också/för",notes:"adverb"},{front:"nice",back:"trevlig/fin",notes:"adjektiv"},{front:"should",back:"borde/ska",notes:"hjälpverb"},{front:"around",back:"runt/ungefär",notes:"prep/adv"},{front:"own",back:"äga/egen",notes:"verb/adjektiv"},{front:"long",back:"lång",notes:"adjektiv"},{front:"put",back:"lägga/ställa",notes:"verb"},{front:"part",back:"del",notes:"substantiv"},{front:"old",back:"gammal",notes:"adjektiv"},{front:"big",back:"stor",notes:"adjektiv"},{front:"real",back:"riktig/verklig",notes:"adjektiv"},{front:"same",back:"samma",notes:"adjektiv"},{front:"another",back:"en annan",notes:"adjektiv"},{front:"right",back:"rätt/höger",notes:"adj/subst"},{front:"little",back:"liten/lite",notes:"adj/adv"},{front:"last",back:"sista/hålla",notes:"adj/verb"},{front:"never",back:"aldrig",notes:"adverb"},{front:"small",back:"liten",notes:"adjektiv"},{front:"start",back:"börja/start",notes:"verb/subst"},{front:"show",back:"visa/show",notes:"verb/subst"},{front:"keep",back:"behålla/hålla",notes:"verb"},{front:"hand",back:"hand",notes:"substantiv"},{front:"stop",back:"sluta/stopp",notes:"verb/subst"},{front:"course",back:"kurs/naturligtvis",notes:"substantiv"},{front:"cut",back:"skära/snitt",notes:"verb/subst"},{front:"play",back:"spela/leka",notes:"verb"},{front:"run",back:"springa/köra",notes:"verb"},{front:"let",back:"låta",notes:"verb"},{front:"tell",back:"berätta/säga",notes:"verb"},{front:"help",back:"hjälpa/hjälp",notes:"verb/subst"},{front:"grow",back:"växa/odla",notes:"verb"},{front:"open",back:"öppna/öppen",notes:"verb/adj"},{front:"walk",back:"gå/promenad",notes:"verb/subst"},{front:"become",back:"bli",notes:"verb"},{front:"leave",back:"lämna/ledighet",notes:"verb/subst"},{front:"show",back:"visa",notes:"verb"},{front:"bring",back:"ta med/hämta",notes:"verb"},{front:"watch",back:"titta/klocka",notes:"verb/subst"},{front:"move",back:"flytta/röra sig",notes:"verb"},{front:"live",back:"leva/bo",notes:"verb"},{front:"change",back:"ändra/förändring",notes:"verb/subst"},{front:"hear",back:"höra",notes:"verb"},{front:"play",back:"spela",notes:"verb"},{front:"lead",back:"leda/bly",notes:"verb/subst"},{front:"stand",back:"stå",notes:"verb"},{front:"own",back:"äga",notes:"verb"},{front:"read",back:"läsa",notes:"verb"},{front:"spend",back:"spendera",notes:"verb"},{front:"write",back:"skriva",notes:"verb"},{front:"lose",back:"förlora",notes:"verb"},{front:"pay",back:"betala",notes:"verb"},{front:"meet",back:"möta",notes:"verb"},{front:"include",back:"inkludera",notes:"verb"},{front:"continue",back:"fortsätta",notes:"verb"},{front:"set",back:"sätta/uppsättning",notes:"verb/subst"},{front:"learn",back:"lära sig",notes:"verb"},{front:"add",back:"lägga till",notes:"verb"},{front:"build",back:"bygga",notes:"verb"},{front:"fall",back:"falla/höst",notes:"verb/subst"},{front:"happen",back:"hända",notes:"verb"},{front:"plan",back:"planera/plan",notes:"verb/subst"},{front:"form",back:"form/bilda",notes:"subst/verb"},{front:"strong",back:"stark",notes:"adjektiv"},{front:"dark",back:"mörk",notes:"adjektiv"},{front:"hard",back:"hård/svår",notes:"adjektiv"},{front:"warm",back:"varm",notes:"adjektiv"},{front:"clean",back:"ren",notes:"adjektiv"},{front:"clear",back:"tydlig/klar",notes:"adjektiv"},{front:"late",back:"sen/försenad",notes:"adjektiv"},{front:"deep",back:"djup",notes:"adjektiv"},{front:"heavy",back:"tung",notes:"adjektiv"},{front:"dry",back:"torr",notes:"adjektiv"},{front:"sweet",back:"söt",notes:"adjektiv"},{front:"hot",back:"varm/het",notes:"adjektiv"},{front:"wrong",back:"fel",notes:"adjektiv"},{front:"full",back:"full",notes:"adjektiv"},{front:"far",back:"långt/fjärran",notes:"adverb/adj"},{front:"sure",back:"säker",notes:"adjektiv"},{front:"close",back:"nära/stänga",notes:"adj/verb"},{front:"wide",back:"bred/vid",notes:"adjektiv"},{front:"green",back:"grön",notes:"adjektiv"},{front:"blue",back:"blå",notes:"adjektiv"},{front:"sea",back:"hav",notes:"substantiv"},{front:"sun",back:"sol",notes:"substantiv"},{front:"moon",back:"måne",notes:"substantiv"},{front:"star",back:"stjärna",notes:"substantiv"},{front:"tree",back:"träd",notes:"substantiv"},{front:"water",back:"vatten",notes:"substantiv"},{front:"food",back:"mat",notes:"substantiv"},{front:"word",back:"ord",notes:"substantiv"},{front:"number",back:"nummer/antal",notes:"substantiv"},{front:"name",back:"namn",notes:"substantiv"},{front:"world",back:"värld",notes:"substantiv"},{front:"country",back:"land",notes:"substantiv"},{front:"city",back:"stad",notes:"substantiv"},{front:"house",back:"hus",notes:"substantiv"},{front:"school",back:"skola",notes:"substantiv"},{front:"street",back:"gata",notes:"substantiv"},{front:"father",back:"far/pappa",notes:"substantiv"},{front:"mother",back:"mor/mamma",notes:"substantiv"},{front:"sister",back:"syster",notes:"substantiv"},{front:"friend",back:"vän",notes:"substantiv"},{front:"head",back:"huvud",notes:"substantiv"},{front:"heart",back:"hjärta",notes:"substantiv"},{front:"eye",back:"öga",notes:"substantiv"},{front:"nose",back:"näsa",notes:"substantiv"},{front:"arm",back:"arm",notes:"substantiv"},{front:"foot",back:"fot",notes:"substantiv"},{front:"mind",back:"sinne/tänka",notes:"subst/verb"},{front:"idea",back:"idé",notes:"substantiv"},{front:"point",back:"poäng/punkt",notes:"substantiv"},{front:"fact",back:"faktum",notes:"substantiv"},{front:"thing",back:"sak/grej",notes:"substantiv"},{front:"part",back:"del",notes:"substantiv"},{front:"side",back:"sida",notes:"substantiv"},{front:"end",back:"slut/avsluta",notes:"subst/verb"},{front:"line",back:"linje/rad",notes:"substantiv"},{front:"word",back:"ord",notes:"substantiv"},{front:"game",back:"spel",notes:"substantiv"},{front:"story",back:"berättelse",notes:"substantiv"},{front:"question",back:"fråga",notes:"substantiv"},{front:"answer",back:"svar/svara",notes:"subst/verb"},{front:"week",back:"vecka",notes:"substantiv"},{front:"night",back:"natt",notes:"substantiv"},{front:"afternoon",back:"eftermiddag",notes:"substantiv"},{front:"today",back:"idag",notes:"adverb"},{front:"yesterday",back:"igår",notes:"adverb"},{front:"tomorrow",back:"imorgon",notes:"adverb"},{front:"here",back:"här",notes:"adverb"},{front:"there",back:"där",notes:"adverb"},{front:"where",back:"var/vart",notes:"adverb"},{front:"why",back:"varför",notes:"adverb"},{front:"again",back:"igen",notes:"adverb"},{front:"maybe",back:"kanske",notes:"adverb"},{front:"almost",back:"nästan",notes:"adverb"},{front:"already",back:"redan",notes:"adverb"},{front:"still",back:"fortfarande",notes:"adverb"},{front:"yet",back:"ännu/redan",notes:"adverb"},{front:"very",back:"mycket/väldigt",notes:"adverb"},{front:"really",back:"verkligen/riktigt",notes:"adverb"},{front:"especially",back:"speciellt",notes:"adverb"},{front:"however",back:"däremot/dock",notes:"adverb"},{front:"therefore",back:"därför",notes:"adverb"},{front:"actually",back:"faktiskt/egentligen",notes:"adverb"},{front:"maybe",back:"kanske",notes:"adverb"},{front:"suddenly",back:"plötsligt",notes:"adverb"},{front:"probably",back:"troligtvis",notes:"adverb"},{front:"usually",back:"vanligtvis",notes:"adverb"},{front:"finally",back:"till slut/äntligen",notes:"adverb"},{front:"quickly",back:"snabbt",notes:"adverb"},{front:"slowly",back:"sakta/långsamt",notes:"adverb"},{front:"together",back:"tillsammans",notes:"adverb"},{front:"above",back:"ovanför",notes:"adverb"},{front:"below",back:"nedanför",notes:"adverb"},{front:"inside",back:"inuti/inne",notes:"adverb/prep"},{front:"outside",back:"utanför/ute",notes:"adverb/prep"},{front:"behind",back:"bakom",notes:"preposition"},{front:"before",back:"innan/före",notes:"prep/konj"},{front:"across",back:"tvärs över",notes:"preposition"},{front:"through",back:"genom",notes:"preposition"},{front:"around",back:"runt",notes:"preposition"},{front:"without",back:"utan",notes:"preposition"},{front:"within",back:"inom",notes:"preposition"},{front:"toward",back:"mot",notes:"preposition"},{front:"among",back:"bland",notes:"preposition"},{front:"along",back:"längs",notes:"preposition"},{front:"upon",back:"på/över",notes:"preposition"},{front:"despite",back:"trots",notes:"preposition"},{front:"except",back:"utom",notes:"preposition"},{front:"beyond",back:"bortom",notes:"preposition"},{front:"throughout",back:"genom hela",notes:"preposition"},{front:"although",back:"även om/fastän",notes:"konjunktion"},{front:"while",back:"medan",notes:"konjunktion"},{front:"unless",back:"om inte/såvida inte",notes:"konjunktion"},{front:"therefore",back:"därför",notes:"konjunktion"},{front:"however",back:"men/dock",notes:"konjunktion"},{front:"moreover",back:"dessutom",notes:"adverb"},{front:"furthermore",back:"vidare/dessutom",notes:"adverb"},{front:"otherwise",back:"annars",notes:"adverb"}];
+  return [{front:"the",back:"det/den/de",notes:"artikel"},{front:"be",back:"vara",notes:"verb"},{front:"to",back:"till/att",notes:"prep/inf"},{front:"of",back:"av/om",notes:"preposition"},{front:"and",back:"och",notes:"konjunktion"},{front:"a",back:"en/ett",notes:"artikel"},{front:"in",back:"i/in",notes:"preposition"},{front:"that",back:"att/det/som",notes:"konj/pron"},{front:"have",back:"ha",notes:"verb"},{front:"it",back:"det",notes:"pronomen"},{front:"for",back:"för",notes:"preposition"},{front:"not",back:"inte",notes:"adverb"},{front:"on",back:"på",notes:"preposition"},{front:"with",back:"med",notes:"preposition"},{front:"he",back:"han",notes:"pronomen"},{front:"as",back:"som/när",notes:"konjunktion"},{front:"you",back:"du/ni",notes:"pronomen"},{front:"do",back:"göra",notes:"verb"},{front:"at",back:"vid/på",notes:"preposition"},{front:"this",back:"detta",notes:"pronomen"},{front:"but",back:"men",notes:"konjunktion"},{front:"his",back:"hans",notes:"pronomen"},{front:"by",back:"av/med",notes:"preposition"},{front:"from",back:"från",notes:"preposition"},{front:"they",back:"de",notes:"pronomen"},{front:"we",back:"vi",notes:"pronomen"},{front:"say",back:"säga",notes:"verb"},{front:"her",back:"henne/hennes",notes:"pronomen"},{front:"she",back:"hon",notes:"pronomen"},{front:"or",back:"eller",notes:"konjunktion"},{front:"an",back:"en/ett",notes:"artikel"},{front:"will",back:"kommer att",notes:"hjälpverb"},{front:"my",back:"min/mitt",notes:"pronomen"},{front:"one",back:"en/man",notes:"räkneord"},{front:"all",back:"alla/allt",notes:"pronomen"},{front:"would",back:"skulle",notes:"hjälpverb"},{front:"there",back:"där/det",notes:"adverb"},{front:"their",back:"deras",notes:"pronomen"},{front:"what",back:"vad",notes:"pronomen"},{front:"so",back:"så",notes:"adverb"},{front:"up",back:"upp",notes:"adverb"},{front:"out",back:"ut",notes:"adverb"},{front:"if",back:"om",notes:"konjunktion"},{front:"about",back:"om/ungefär",notes:"preposition"},{front:"who",back:"vem/som",notes:"pronomen"},{front:"get",back:"få/skaffa",notes:"verb"},{front:"which",back:"vilket/som",notes:"pronomen"},{front:"go",back:"gå/åka",notes:"verb"},{front:"me",back:"mig",notes:"pronomen"},{front:"when",back:"när",notes:"konjunktion"},{front:"make",back:"göra/tillverka",notes:"verb"},{front:"can",back:"kan",notes:"hjälpverb"},{front:"like",back:"gilla/som",notes:"verb/prep"},{front:"time",back:"tid/gång",notes:"substantiv"},{front:"no",back:"nej/ingen",notes:"adverb"},{front:"just",back:"bara/just",notes:"adverb"},{front:"him",back:"honom",notes:"pronomen"},{front:"know",back:"veta/känna",notes:"verb"},{front:"take",back:"ta",notes:"verb"},{front:"people",back:"folk/människor",notes:"substantiv"},{front:"into",back:"in i",notes:"preposition"},{front:"year",back:"år",notes:"substantiv"},{front:"your",back:"din/ditt",notes:"pronomen"},{front:"good",back:"bra/god",notes:"adjektiv"},{front:"some",back:"några/lite",notes:"pronomen"},{front:"could",back:"kunde",notes:"hjälpverb"},{front:"them",back:"dem",notes:"pronomen"},{front:"see",back:"se",notes:"verb"},{front:"other",back:"annan/andra",notes:"adjektiv"},{front:"than",back:"än",notes:"konjunktion"},{front:"then",back:"sedan/då",notes:"adverb"},{front:"now",back:"nu",notes:"adverb"},{front:"look",back:"titta/se ut",notes:"verb"},{front:"only",back:"bara/enda",notes:"adverb"},{front:"come",back:"komma",notes:"verb"},{front:"its",back:"dess",notes:"pronomen"},{front:"over",back:"över",notes:"preposition"},{front:"think",back:"tänka/tro",notes:"verb"},{front:"also",back:"också",notes:"adverb"},{front:"back",back:"tillbaka/rygg",notes:"adverb/subst"},{front:"after",back:"efter",notes:"preposition"},{front:"use",back:"använda",notes:"verb"},{front:"two",back:"två",notes:"räkneord"},{front:"how",back:"hur",notes:"adverb"},{front:"our",back:"vår/våra",notes:"pronomen"},{front:"work",back:"arbeta/arbete",notes:"verb/subst"},{front:"first",back:"första",notes:"ordningstal"},{front:"well",back:"bra/brunn",notes:"adverb/subst"},{front:"way",back:"väg/sätt",notes:"substantiv"},{front:"even",back:"till och med/jämn",notes:"adverb"},{front:"new",back:"ny",notes:"adjektiv"},{front:"want",back:"vilja",notes:"verb"},{front:"because",back:"för att/eftersom",notes:"konjunktion"},{front:"any",back:"någon/något",notes:"pronomen"},{front:"these",back:"dessa",notes:"pronomen"},{front:"give",back:"ge",notes:"verb"},{front:"day",back:"dag",notes:"substantiv"},{front:"most",back:"mest/flest",notes:"adverb"},{front:"us",back:"oss",notes:"pronomen"},{front:"between",back:"mellan",notes:"preposition"},{front:"need",back:"behöva",notes:"verb"},{front:"large",back:"stor",notes:"adjektiv"},{front:"often",back:"ofta",notes:"adverb"},{front:"hand",back:"hand",notes:"substantiv"},{front:"high",back:"hög",notes:"adjektiv"},{front:"place",back:"plats",notes:"substantiv"},{front:"hold",back:"hålla",notes:"verb"},{front:"free",back:"fri/gratis",notes:"adjektiv"},{front:"real",back:"verklig",notes:"adjektiv"},{front:"life",back:"liv",notes:"substantiv"},{front:"few",back:"få",notes:"adjektiv"},{front:"north",back:"norr",notes:"substantiv"},{front:"open",back:"öppna/öppen",notes:"verb/adj"},{front:"seem",back:"verka/tyckas",notes:"verb"},{front:"together",back:"tillsammans",notes:"adverb"},{front:"next",back:"nästa",notes:"adjektiv"},{front:"white",back:"vit",notes:"adjektiv"},{front:"children",back:"barn",notes:"subst (pl)"},{front:"begin",back:"börja",notes:"verb"},{front:"walk",back:"gå/promenad",notes:"verb/subst"},{front:"example",back:"exempel",notes:"substantiv"},{front:"always",back:"alltid",notes:"adverb"},{front:"music",back:"musik",notes:"substantiv"},{front:"those",back:"de/dem",notes:"pronomen"},{front:"both",back:"båda",notes:"pronomen"},{front:"book",back:"bok",notes:"substantiv"},{front:"letter",back:"brev/bokstav",notes:"substantiv"},{front:"until",back:"tills/till",notes:"konjunktion"},{front:"river",back:"flod",notes:"substantiv"},{front:"car",back:"bil",notes:"substantiv"},{front:"care",back:"bry sig om",notes:"verb"},{front:"second",back:"andra/sekund",notes:"ordningstal/subst"},{front:"enough",back:"tillräckligt",notes:"adverb"},{front:"girl",back:"flicka/tjej",notes:"substantiv"},{front:"young",back:"ung",notes:"adjektiv"},{front:"ready",back:"redo",notes:"adjektiv"},{front:"above",back:"ovanför",notes:"preposition"},{front:"ever",back:"någonsin",notes:"adverb"},{front:"red",back:"röd",notes:"adjektiv"},{front:"though",back:"fast/trots att",notes:"konjunktion"},{front:"feel",back:"känna sig",notes:"verb"},{front:"talk",back:"prata",notes:"verb"},{front:"bird",back:"fågel",notes:"substantiv"},{front:"soon",back:"snart",notes:"adverb"},{front:"body",back:"kropp",notes:"substantiv"},{front:"dog",back:"hund",notes:"substantiv"},{front:"family",back:"familj",notes:"substantiv"},{front:"leave",back:"lämna",notes:"verb"},{front:"song",back:"sång/låt",notes:"substantiv"},{front:"door",back:"dörr",notes:"substantiv"},{front:"black",back:"svart",notes:"adjektiv"},{front:"short",back:"kort/låg",notes:"adjektiv"},{front:"question",back:"fråga",notes:"substantiv"},{front:"happen",back:"hända",notes:"verb"},{front:"ship",back:"fartyg",notes:"substantiv"},{front:"area",back:"område",notes:"substantiv"},{front:"half",back:"halv/hälften",notes:"adj/subst"},{front:"rock",back:"sten/klippa",notes:"substantiv"},{front:"fire",back:"eld",notes:"substantiv"},{front:"south",back:"söder",notes:"substantiv"},{front:"problem",back:"problem",notes:"substantiv"},{front:"piece",back:"bit/stycke",notes:"substantiv"},{front:"since",back:"sedan/eftersom",notes:"prep/konj"},{front:"top",back:"topp",notes:"substantiv"},{front:"whole",back:"hel",notes:"adjektiv"},{front:"king",back:"kung",notes:"substantiv"},{front:"space",back:"rymd/utrymme",notes:"substantiv"},{front:"best",back:"bäst",notes:"superlativ"},{front:"hour",back:"timme",notes:"substantiv"},{front:"better",back:"bättre",notes:"komparativ"},{front:"true",back:"sann",notes:"adjektiv"},{front:"during",back:"under (tid)",notes:"preposition"},{front:"hundred",back:"hundra",notes:"räkneord"},{front:"five",back:"fem",notes:"räkneord"},{front:"remember",back:"komma ihåg",notes:"verb"},{front:"step",back:"steg",notes:"substantiv"},{front:"early",back:"tidig",notes:"adjektiv"},{front:"west",back:"väster",notes:"substantiv"},{front:"ground",back:"mark/grund",notes:"substantiv"},{front:"interest",back:"intresse",notes:"substantiv"},{front:"reach",back:"nå",notes:"verb"},{front:"fast",back:"snabb",notes:"adjektiv"},{front:"sing",back:"sjunga",notes:"verb"},{front:"listen",back:"lyssna",notes:"verb"},{front:"six",back:"sex",notes:"räkneord"},{front:"table",back:"bord",notes:"substantiv"},{front:"travel",back:"resa",notes:"verb/subst"},{front:"less",back:"mindre",notes:"adverb"},{front:"morning",back:"morgon",notes:"substantiv"},{front:"ten",back:"tio",notes:"räkneord"},{front:"simple",back:"enkel",notes:"adjektiv"},{front:"several",back:"flera",notes:"adjektiv"},{front:"war",back:"krig",notes:"substantiv"},{front:"against",back:"mot/emot",notes:"preposition"},{front:"pattern",back:"mönster",notes:"substantiv"},{front:"slow",back:"långsam",notes:"adjektiv"},{front:"center",back:"centrum",notes:"substantiv"},{front:"love",back:"kärlek/älska",notes:"subst/verb"},{front:"person",back:"person",notes:"substantiv"},{front:"money",back:"pengar",notes:"substantiv"},{front:"appear",back:"dyka upp",notes:"verb"},{front:"road",back:"väg",notes:"substantiv"},{front:"map",back:"karta",notes:"substantiv"},{front:"rain",back:"regn/regna",notes:"subst/verb"},{front:"rule",back:"regel/regera",notes:"subst/verb"},{front:"cold",back:"kall/förkylning",notes:"adj/subst"},{front:"voice",back:"röst",notes:"substantiv"},{front:"energy",back:"energi",notes:"substantiv"},{front:"bed",back:"säng",notes:"substantiv"},{front:"brother",back:"bror",notes:"substantiv"},{front:"egg",back:"ägg",notes:"substantiv"},{front:"ride",back:"rida/åka",notes:"verb"},{front:"believe",back:"tro/tycka",notes:"verb"},{front:"forest",back:"skog",notes:"substantiv"},{front:"sit",back:"sitta",notes:"verb"},{front:"window",back:"fönster",notes:"substantiv"},{front:"store",back:"affär/lagra",notes:"subst/verb"},{front:"summer",back:"sommar",notes:"substantiv"},{front:"train",back:"träna/tåg",notes:"verb/subst"},{front:"sleep",back:"sova",notes:"verb"},{front:"leg",back:"ben",notes:"substantiv"},{front:"wall",back:"vägg",notes:"substantiv"},{front:"catch",back:"fånga",notes:"verb"},{front:"wish",back:"önska",notes:"verb"},{front:"sky",back:"himmel",notes:"substantiv"},{front:"joy",back:"glädje",notes:"substantiv"},{front:"winter",back:"vinter",notes:"substantiv"},{front:"wild",back:"vild",notes:"adjektiv"},{front:"glass",back:"glas",notes:"substantiv"},{front:"grass",back:"gräs",notes:"substantiv"},{front:"cow",back:"ko",notes:"substantiv"},{front:"job",back:"jobb",notes:"substantiv"},{front:"sign",back:"tecken/skylt",notes:"substantiv"},{front:"visit",back:"besöka",notes:"verb"},{front:"past",back:"förfluten/förbi",notes:"adj/adv"},{front:"soft",back:"mjuk",notes:"adjektiv"},{front:"fun",back:"roligt",notes:"adjektiv"},{front:"bright",back:"ljus/intelligent",notes:"adjektiv"},{front:"weather",back:"väder",notes:"substantiv"},{front:"month",back:"månad",notes:"substantiv"},{front:"million",back:"miljon",notes:"räkneord"},{front:"bear",back:"björn/bära",notes:"subst/verb"},{front:"finish",back:"avsluta",notes:"verb"},{front:"happy",back:"glad/lycklig",notes:"adjektiv"},{front:"hope",back:"hoppas/hopp",notes:"verb/subst"},{front:"flower",back:"blomma",notes:"substantiv"},{front:"strange",back:"konstig",notes:"adjektiv"},{front:"jump",back:"hoppa",notes:"verb"},{front:"baby",back:"baby/bebis",notes:"substantiv"},{front:"eight",back:"åtta",notes:"räkneord"},{front:"village",back:"by",notes:"substantiv"},{front:"meet",back:"möta",notes:"verb"},{front:"root",back:"rot",notes:"substantiv"},{front:"buy",back:"köpa",notes:"verb"},{front:"raise",back:"höja/uppfostra",notes:"verb"},{front:"solve",back:"lösa",notes:"verb"},{front:"metal",back:"metall",notes:"substantiv"},{front:"whether",back:"om/huruvida",notes:"konjunktion"},{front:"push",back:"trycka",notes:"verb"},{front:"seven",back:"sju",notes:"räkneord"},{front:"third",back:"tredje",notes:"ordningstal"},{front:"hair",back:"hår",notes:"substantiv"},{front:"describe",back:"beskriva",notes:"verb"},{front:"cook",back:"laga mat/kock",notes:"verb/subst"},{front:"floor",back:"golv/våning",notes:"substantiv"},{front:"result",back:"resultat",notes:"substantiv"},{front:"burn",back:"bränna/brinna",notes:"verb"},{front:"hill",back:"kulle",notes:"substantiv"},{front:"safe",back:"säker",notes:"adjektiv"},{front:"cat",back:"katt",notes:"substantiv"},{front:"century",back:"sekel",notes:"substantiv"},{front:"type",back:"typ/skriva",notes:"subst/verb"},{front:"law",back:"lag",notes:"substantiv"},{front:"coast",back:"kust",notes:"substantiv"},{front:"silent",back:"tyst",notes:"adjektiv"},{front:"tall",back:"lång (person)",notes:"adjektiv"},{front:"sand",back:"sand",notes:"substantiv"},{front:"soil",back:"jord",notes:"substantiv"},{front:"roll",back:"rulla",notes:"verb"},{front:"temperature",back:"temperatur",notes:"substantiv"},{front:"finger",back:"finger",notes:"substantiv"},{front:"industry",back:"industri",notes:"substantiv"},{front:"value",back:"värde",notes:"substantiv"},{front:"fight",back:"slåss/kamp",notes:"verb/subst"},{front:"natural",back:"naturlig",notes:"adjektiv"},{front:"view",back:"utsikt/se",notes:"subst/verb"},{front:"sense",back:"känsla/sinne",notes:"substantiv"},{front:"ear",back:"öra",notes:"substantiv"},{front:"quite",back:"ganska",notes:"adverb"},{front:"case",back:"fall/väska",notes:"substantiv"},{front:"middle",back:"mitten",notes:"substantiv"},{front:"kill",back:"döda",notes:"verb"},{front:"son",back:"son",notes:"substantiv"},{front:"lake",back:"sjö",notes:"substantiv"},{front:"moment",back:"ögonblick",notes:"substantiv"},{front:"scale",back:"skala",notes:"substantiv"},{front:"loud",back:"hög/högljudd",notes:"adjektiv"},{front:"spring",back:"vår/fjäder",notes:"substantiv"},{front:"child",back:"barn",notes:"substantiv"},{front:"straight",back:"rak",notes:"adjektiv"},{front:"nation",back:"nation",notes:"substantiv"},{front:"milk",back:"mjölk",notes:"substantiv"},{front:"speed",back:"hastighet",notes:"substantiv"},{front:"method",back:"metod",notes:"substantiv"},{front:"pay",back:"betala",notes:"verb"},{front:"age",back:"ålder",notes:"substantiv"},{front:"dress",back:"klänning/klä",notes:"subst/verb"},{front:"cloud",back:"moln",notes:"substantiv"},{front:"quiet",back:"tyst/lugn",notes:"adjektiv"},{front:"stone",back:"sten",notes:"substantiv"},{front:"tiny",back:"pytteliten",notes:"adjektiv"},{front:"climb",back:"klättra",notes:"verb"},{front:"cool",back:"sval/cool",notes:"adjektiv"},{front:"design",back:"design",notes:"substantiv"},{front:"poor",back:"fattig/dålig",notes:"adjektiv"},{front:"experiment",back:"experiment",notes:"substantiv"},{front:"bottom",back:"botten",notes:"substantiv"},{front:"key",back:"nyckel",notes:"substantiv"},{front:"iron",back:"järn",notes:"substantiv"},{front:"single",back:"enstaka",notes:"adjektiv"},{front:"flat",back:"platt/lägenhet",notes:"adj/subst"},{front:"twenty",back:"tjugo",notes:"räkneord"},{front:"skin",back:"hud",notes:"substantiv"},{front:"smile",back:"le/leende",notes:"verb/subst"},{front:"trade",back:"handel",notes:"substantiv"},{front:"melody",back:"melodi",notes:"substantiv"},{front:"trip",back:"resa",notes:"substantiv"},{front:"office",back:"kontor",notes:"substantiv"},{front:"receive",back:"ta emot",notes:"verb"},{front:"mouth",back:"mun",notes:"substantiv"},{front:"symbol",back:"symbol",notes:"substantiv"},{front:"die",back:"dö",notes:"verb"},{front:"least",back:"minst",notes:"adverb"},{front:"trouble",back:"problem/besvär",notes:"substantiv"},{front:"shout",back:"ropa/skrika",notes:"verb"},{front:"except",back:"utom",notes:"preposition"},{front:"seed",back:"frö",notes:"substantiv"},{front:"join",back:"gå med i",notes:"verb"},{front:"suggest",back:"föreslå",notes:"verb"},{front:"clean",back:"ren/städa",notes:"adj/verb"},{front:"break",back:"bryta/paus",notes:"verb/subst"},{front:"yard",back:"gård",notes:"substantiv"},{front:"rise",back:"stiga",notes:"verb"},{front:"bad",back:"dålig",notes:"adjektiv"},{front:"blow",back:"blåsa",notes:"verb"},{front:"oil",back:"olja",notes:"substantiv"},{front:"blood",back:"blod",notes:"substantiv"},{front:"touch",back:"röra/beröring",notes:"verb/subst"},{front:"mix",back:"blanda",notes:"verb"},{front:"team",back:"lag/team",notes:"substantiv"},{front:"cost",back:"kosta/kostnad",notes:"verb/subst"},{front:"brown",back:"brun",notes:"adjektiv"},{front:"wear",back:"bära/ha på sig",notes:"verb"},{front:"garden",back:"trädgård",notes:"substantiv"},{front:"equal",back:"lika",notes:"adjektiv"},{front:"choose",back:"välja",notes:"verb"},{front:"fit",back:"passa",notes:"verb"},{front:"flow",back:"flöda",notes:"verb"},{front:"fair",back:"rättvis",notes:"adjektiv"},{front:"bank",back:"bank",notes:"substantiv"},{front:"collect",back:"samla",notes:"verb"},{front:"save",back:"spara/rädda",notes:"verb"},{front:"control",back:"kontrollera",notes:"verb"},{front:"gentle",back:"mild/varsam",notes:"adjektiv"},{front:"woman",back:"kvinna",notes:"substantiv"},{front:"captain",back:"kapten",notes:"substantiv"},{front:"practice",back:"träna/öva",notes:"verb"},{front:"separate",back:"separat",notes:"adjektiv"},{front:"difficult",back:"svår",notes:"adjektiv"},{front:"doctor",back:"läkare",notes:"substantiv"},{front:"protect",back:"skydda",notes:"verb"},{front:"ring",back:"ring/ringa",notes:"subst/verb"},{front:"character",back:"karaktär",notes:"substantiv"},{front:"insect",back:"insekt",notes:"substantiv"},{front:"period",back:"period",notes:"substantiv"},{front:"radio",back:"radio",notes:"substantiv"},{front:"atom",back:"atom",notes:"substantiv"},{front:"human",back:"människa",notes:"substantiv"},{front:"history",back:"historia",notes:"substantiv"},{front:"effect",back:"effekt",notes:"substantiv"},{front:"electric",back:"elektrisk",notes:"adjektiv"},{front:"expect",back:"förvänta sig",notes:"verb"},{front:"modern",back:"modern",notes:"adjektiv"},{front:"element",back:"element",notes:"substantiv"},{front:"hit",back:"slå/träffa",notes:"verb"},{front:"student",back:"student",notes:"substantiv"},{front:"corner",back:"hörn",notes:"substantiv"},{front:"supply",back:"leverera",notes:"verb"},{front:"bone",back:"ben (skelett)",notes:"substantiv"},{front:"imagine",back:"föreställa sig",notes:"verb"},{front:"provide",back:"tillhandahålla",notes:"verb"},{front:"agree",back:"hålla med",notes:"verb"},{front:"capital",back:"kapital/huvudstad",notes:"substantiv"},{front:"chair",back:"stol",notes:"substantiv"},{front:"danger",back:"fara",notes:"substantiv"},{front:"fruit",back:"frukt",notes:"substantiv"},{front:"rich",back:"rik",notes:"adjektiv"},{front:"thick",back:"tjock",notes:"adjektiv"},{front:"soldier",back:"soldat",notes:"substantiv"},{front:"process",back:"process",notes:"substantiv"},{front:"guess",back:"gissa",notes:"verb"},{front:"necessary",back:"nödvändig",notes:"adjektiv"},{front:"sharp",back:"skarp",notes:"adjektiv"},{front:"wing",back:"vinge",notes:"substantiv"},{front:"create",back:"skapa",notes:"verb"},{front:"neighbor",back:"granne",notes:"substantiv"},{front:"wash",back:"tvätta",notes:"verb"},{front:"crowd",back:"folkmassa",notes:"substantiv"},{front:"compare",back:"jämföra",notes:"verb"},{front:"poem",back:"dikt",notes:"substantiv"},{front:"bell",back:"klocka/ringklocka",notes:"substantiv"},{front:"depend",back:"bero på",notes:"verb"},{front:"meat",back:"kött",notes:"substantiv"},{front:"tube",back:"rör",notes:"substantiv"},{front:"famous",back:"berömd",notes:"adjektiv"},{front:"dollar",back:"dollar",notes:"substantiv"},{front:"stream",back:"ström/bäck",notes:"substantiv"},{front:"fear",back:"rädsla/frukta",notes:"subst/verb"},{front:"sight",back:"syn",notes:"substantiv"},{front:"thin",back:"tunn/smal",notes:"adjektiv"},{front:"planet",back:"planet",notes:"substantiv"},{front:"hurry",back:"skynda",notes:"verb"},{front:"chief",back:"chef/hövding",notes:"substantiv"},{front:"clock",back:"klocka",notes:"substantiv"},{front:"enter",back:"gå in",notes:"verb"},{front:"major",back:"viktig",notes:"adjektiv"},{front:"fresh",back:"fräsch/färsk",notes:"adjektiv"},{front:"search",back:"söka",notes:"verb"},{front:"send",back:"skicka",notes:"verb"},{front:"yellow",back:"gul",notes:"adjektiv"},{front:"allow",back:"tillåta",notes:"verb"},{front:"print",back:"skriva ut",notes:"verb"},{front:"dead",back:"död",notes:"adjektiv"},{front:"spot",back:"fläck/plats",notes:"substantiv"},{front:"suit",back:"kostym/passa",notes:"subst/verb"},{front:"current",back:"ström/nuvarande",notes:"subst/adj"},{front:"lift",back:"lyfta/hiss",notes:"verb/subst"},{front:"arrive",back:"anlända",notes:"verb"},{front:"master",back:"bemästra",notes:"verb"},{front:"track",back:"spår",notes:"substantiv"},{front:"parent",back:"förälder",notes:"substantiv"},{front:"shore",back:"strand",notes:"substantiv"},{front:"sheet",back:"lakan/blad",notes:"substantiv"},{front:"connect",back:"ansluta",notes:"verb"},{front:"spend",back:"spendera",notes:"verb"},{front:"fat",back:"fett/tjock",notes:"subst/adj"},{front:"glad",back:"glad",notes:"adjektiv"},{front:"original",back:"ursprunglig",notes:"adjektiv"},{front:"share",back:"dela",notes:"verb"},{front:"station",back:"station",notes:"substantiv"},{front:"bread",back:"bröd",notes:"substantiv"},{front:"charge",back:"ladda/avgift",notes:"verb/subst"},{front:"proper",back:"riktig",notes:"adjektiv"},{front:"bar",back:"bar/stång",notes:"substantiv"},{front:"offer",back:"erbjuda",notes:"verb"},{front:"dream",back:"dröm/drömma",notes:"subst/verb"},{front:"evening",back:"kväll",notes:"substantiv"},{front:"condition",back:"tillstånd/villkor",notes:"substantiv"},{front:"feed",back:"mata",notes:"verb"},{front:"tool",back:"verktyg",notes:"substantiv"},{front:"total",back:"total",notes:"adjektiv"},{front:"basic",back:"grundläggande",notes:"adjektiv"},{front:"smell",back:"lukta/lukt",notes:"verb/subst"},{front:"valley",back:"dal",notes:"substantiv"},{front:"double",back:"dubbel",notes:"adjektiv"},{front:"seat",back:"plats/säte",notes:"substantiv"},{front:"wood",back:"trä/skog",notes:"substantiv"},{front:"light",back:"ljus/lätt",notes:"subst/adj"},{front:"power",back:"kraft/makt",notes:"substantiv"},{front:"town",back:"stad/by",notes:"substantiv"},{front:"fine",back:"bra/fin",notes:"adjektiv"},{front:"drive",back:"köra/driva",notes:"verb"},{front:"watch",back:"titta på/klocka",notes:"verb/subst"},{front:"color",back:"färg",notes:"substantiv"},{front:"face",back:"ansikte",notes:"substantiv"},{front:"main",back:"huvud-/viktigast",notes:"adjektiv"},{front:"land",back:"land/landa",notes:"subst/verb"},{front:"home",back:"hem",notes:"substantiv"},{front:"turn",back:"svänga/tur",notes:"verb/subst"},{front:"move",back:"flytta/röra",notes:"verb"},{front:"live",back:"leva/bo",notes:"verb"},{front:"every",back:"varje",notes:"adjektiv"},{front:"might",back:"kanske/makt",notes:"hjälpverb/subst"},{front:"still",back:"fortfarande/stilla",notes:"adverb/adj"},{front:"try",back:"försöka",notes:"verb"},{front:"ask",back:"fråga",notes:"verb"},{front:"too",back:"också/för",notes:"adverb"},{front:"nice",back:"trevlig/fin",notes:"adjektiv"},{front:"should",back:"borde/ska",notes:"hjälpverb"},{front:"around",back:"runt/ungefär",notes:"prep/adv"},{front:"own",back:"äga/egen",notes:"verb/adjektiv"},{front:"long",back:"lång",notes:"adjektiv"},{front:"put",back:"lägga/ställa",notes:"verb"},{front:"part",back:"del",notes:"substantiv"},{front:"old",back:"gammal",notes:"adjektiv"},{front:"big",back:"stor",notes:"adjektiv"},{front:"same",back:"samma",notes:"adjektiv"},{front:"another",back:"en annan",notes:"adjektiv"},{front:"right",back:"rätt/höger",notes:"adj/subst"},{front:"little",back:"liten/lite",notes:"adj/adv"},{front:"last",back:"sista/hålla",notes:"adj/verb"},{front:"never",back:"aldrig",notes:"adverb"},{front:"small",back:"liten",notes:"adjektiv"},{front:"start",back:"börja/start",notes:"verb/subst"},{front:"show",back:"visa/show",notes:"verb/subst"},{front:"keep",back:"behålla/hålla",notes:"verb"},{front:"stop",back:"sluta/stopp",notes:"verb/subst"},{front:"course",back:"kurs/naturligtvis",notes:"substantiv"},{front:"cut",back:"skära/snitt",notes:"verb/subst"},{front:"play",back:"spela/leka",notes:"verb"},{front:"run",back:"springa/köra",notes:"verb"},{front:"let",back:"låta",notes:"verb"},{front:"tell",back:"berätta/säga",notes:"verb"},{front:"help",back:"hjälpa/hjälp",notes:"verb/subst"},{front:"grow",back:"växa/odla",notes:"verb"},{front:"become",back:"bli",notes:"verb"},{front:"bring",back:"ta med/hämta",notes:"verb"},{front:"change",back:"ändra/förändring",notes:"verb/subst"},{front:"hear",back:"höra",notes:"verb"},{front:"lead",back:"leda/bly",notes:"verb/subst"},{front:"stand",back:"stå",notes:"verb"},{front:"read",back:"läsa",notes:"verb"},{front:"write",back:"skriva",notes:"verb"},{front:"lose",back:"förlora",notes:"verb"},{front:"include",back:"inkludera",notes:"verb"},{front:"continue",back:"fortsätta",notes:"verb"},{front:"set",back:"sätta/uppsättning",notes:"verb/subst"},{front:"learn",back:"lära sig",notes:"verb"},{front:"add",back:"lägga till",notes:"verb"},{front:"build",back:"bygga",notes:"verb"},{front:"fall",back:"falla/höst",notes:"verb/subst"},{front:"plan",back:"planera/plan",notes:"verb/subst"},{front:"form",back:"form/bilda",notes:"subst/verb"},{front:"strong",back:"stark",notes:"adjektiv"},{front:"dark",back:"mörk",notes:"adjektiv"},{front:"hard",back:"hård/svår",notes:"adjektiv"},{front:"warm",back:"varm",notes:"adjektiv"},{front:"clear",back:"tydlig/klar",notes:"adjektiv"},{front:"late",back:"sen/försenad",notes:"adjektiv"},{front:"deep",back:"djup",notes:"adjektiv"},{front:"heavy",back:"tung",notes:"adjektiv"},{front:"dry",back:"torr",notes:"adjektiv"},{front:"sweet",back:"söt",notes:"adjektiv"},{front:"hot",back:"varm/het",notes:"adjektiv"},{front:"wrong",back:"fel",notes:"adjektiv"},{front:"full",back:"full",notes:"adjektiv"},{front:"far",back:"långt/fjärran",notes:"adverb/adj"},{front:"sure",back:"säker",notes:"adjektiv"},{front:"close",back:"nära/stänga",notes:"adj/verb"},{front:"wide",back:"bred/vid",notes:"adjektiv"},{front:"green",back:"grön",notes:"adjektiv"},{front:"blue",back:"blå",notes:"adjektiv"},{front:"sea",back:"hav",notes:"substantiv"},{front:"sun",back:"sol",notes:"substantiv"},{front:"moon",back:"måne",notes:"substantiv"},{front:"star",back:"stjärna",notes:"substantiv"},{front:"tree",back:"träd",notes:"substantiv"},{front:"water",back:"vatten",notes:"substantiv"},{front:"food",back:"mat",notes:"substantiv"},{front:"word",back:"ord",notes:"substantiv"},{front:"number",back:"nummer/antal",notes:"substantiv"},{front:"name",back:"namn",notes:"substantiv"},{front:"world",back:"värld",notes:"substantiv"},{front:"country",back:"land",notes:"substantiv"},{front:"city",back:"stad",notes:"substantiv"},{front:"house",back:"hus",notes:"substantiv"},{front:"school",back:"skola",notes:"substantiv"},{front:"street",back:"gata",notes:"substantiv"},{front:"father",back:"far/pappa",notes:"substantiv"},{front:"mother",back:"mor/mamma",notes:"substantiv"},{front:"sister",back:"syster",notes:"substantiv"},{front:"friend",back:"vän",notes:"substantiv"},{front:"head",back:"huvud",notes:"substantiv"},{front:"heart",back:"hjärta",notes:"substantiv"},{front:"eye",back:"öga",notes:"substantiv"},{front:"nose",back:"näsa",notes:"substantiv"},{front:"arm",back:"arm",notes:"substantiv"},{front:"foot",back:"fot",notes:"substantiv"},{front:"mind",back:"sinne/tänka",notes:"subst/verb"},{front:"idea",back:"idé",notes:"substantiv"},{front:"point",back:"poäng/punkt",notes:"substantiv"},{front:"fact",back:"faktum",notes:"substantiv"},{front:"thing",back:"sak/grej",notes:"substantiv"},{front:"side",back:"sida",notes:"substantiv"},{front:"end",back:"slut/avsluta",notes:"subst/verb"},{front:"line",back:"linje/rad",notes:"substantiv"},{front:"game",back:"spel",notes:"substantiv"},{front:"story",back:"berättelse",notes:"substantiv"},{front:"answer",back:"svar/svara",notes:"subst/verb"},{front:"week",back:"vecka",notes:"substantiv"},{front:"night",back:"natt",notes:"substantiv"},{front:"afternoon",back:"eftermiddag",notes:"substantiv"},{front:"today",back:"idag",notes:"adverb"},{front:"yesterday",back:"igår",notes:"adverb"},{front:"tomorrow",back:"imorgon",notes:"adverb"},{front:"here",back:"här",notes:"adverb"},{front:"where",back:"var/vart",notes:"adverb"},{front:"why",back:"varför",notes:"adverb"},{front:"again",back:"igen",notes:"adverb"},{front:"maybe",back:"kanske",notes:"adverb"},{front:"almost",back:"nästan",notes:"adverb"},{front:"already",back:"redan",notes:"adverb"},{front:"yet",back:"ännu/redan",notes:"adverb"},{front:"very",back:"mycket/väldigt",notes:"adverb"},{front:"really",back:"verkligen/riktigt",notes:"adverb"},{front:"especially",back:"speciellt",notes:"adverb"},{front:"however",back:"däremot/dock",notes:"adverb"},{front:"therefore",back:"därför",notes:"adverb"},{front:"actually",back:"faktiskt/egentligen",notes:"adverb"},{front:"suddenly",back:"plötsligt",notes:"adverb"},{front:"probably",back:"troligtvis",notes:"adverb"},{front:"usually",back:"vanligtvis",notes:"adverb"},{front:"finally",back:"till slut/äntligen",notes:"adverb"},{front:"quickly",back:"snabbt",notes:"adverb"},{front:"slowly",back:"sakta/långsamt",notes:"adverb"},{front:"above",back:"ovanför",notes:"adverb"},{front:"below",back:"nedanför",notes:"adverb"},{front:"inside",back:"inuti/inne",notes:"adverb/prep"},{front:"outside",back:"utanför/ute",notes:"adverb/prep"},{front:"behind",back:"bakom",notes:"preposition"},{front:"before",back:"innan/före",notes:"prep/konj"},{front:"across",back:"tvärs över",notes:"preposition"},{front:"through",back:"genom",notes:"preposition"},{front:"without",back:"utan",notes:"preposition"},{front:"within",back:"inom",notes:"preposition"},{front:"toward",back:"mot",notes:"preposition"},{front:"among",back:"bland",notes:"preposition"},{front:"along",back:"längs",notes:"preposition"},{front:"upon",back:"på/över",notes:"preposition"},{front:"despite",back:"trots",notes:"preposition"},{front:"beyond",back:"bortom",notes:"preposition"},{front:"throughout",back:"genom hela",notes:"preposition"},{front:"although",back:"även om/fastän",notes:"konjunktion"},{front:"while",back:"medan",notes:"konjunktion"},{front:"unless",back:"om inte/såvida inte",notes:"konjunktion"},{front:"moreover",back:"dessutom",notes:"adverb"},{front:"furthermore",back:"vidare/dessutom",notes:"adverb"},{front:"otherwise",back:"annars",notes:"adverb"}];
 }

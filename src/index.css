@@ -515,3 +515,61 @@ body {
   .card-text { font-size: 26px; }
   .stats-row { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Theme icon picker ───────────────────────────────── */
+.icon-picker-row { position: relative; }
+.icon-preview-btn {
+  font-size: 28px; padding: 8px 16px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--bg); cursor: pointer;
+  transition: all 0.15s; display: flex; align-items: center;
+}
+.icon-preview-btn:hover { background: var(--bg2); }
+.icon-picker-grid {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 200;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px;
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+  box-shadow: var(--shadow-lg); min-width: 260px;
+}
+.icon-pick-btn {
+  font-size: 22px; padding: 6px; border: 2px solid transparent;
+  border-radius: 8px; background: transparent; cursor: pointer;
+  transition: all 0.12s; line-height: 1;
+}
+.icon-pick-btn:hover { background: var(--bg2); }
+.icon-pick-btn.selected { border-color: var(--text); background: var(--bg2); }
+
+/* ── Deck theme icon ─────────────────────────────────── */
+.deck-theme-icon { font-size: 26px; margin-right: 4px; }
+
+/* ── Shared badge ────────────────────────────────────── */
+.deck-shared-badge {
+  padding: 2px 10px; border-radius: 20px; font-size: 11px;
+  background: #e0eeff; color: #2060a0; font-family: var(--mono);
+}
+.deck-act-btn.active-share {
+  background: #e0eeff; color: #2060a0; border-color: #aaccee;
+}
+
+/* ── Study direction picker ──────────────────────────── */
+.study-dir-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 16px; flex-wrap: wrap;
+}
+.study-dir-label { font-size: 13px; color: var(--text2); font-family: var(--mono); }
+.dir-btn {
+  padding: 7px 16px; border-radius: 20px; border: 1.5px solid var(--border);
+  background: var(--surface); font-family: var(--font); font-size: 13px;
+  cursor: pointer; transition: all 0.15s; color: var(--text2);
+}
+.dir-btn:hover { background: var(--bg2); color: var(--text); }
+.dir-btn.active {
+  background: var(--text); color: var(--bg); border-color: var(--text);
+}
+.study-dir-badge {
+  font-size: 12px; color: var(--text3); font-family: var(--mono);
+  background: var(--bg2); padding: 4px 12px; border-radius: 20px;
+}
+
+/* ── Explore cards ───────────────────────────────────── */
+.explore-card .deck-card-body { cursor: default; }
