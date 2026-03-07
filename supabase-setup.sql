@@ -114,3 +114,15 @@ create index if not exists idx_progress_next_review on public.progress (next_rev
 -- create policy "Anyone can read public deck cards" on public.cards for select using (
 --   exists (select 1 from public.decks where decks.id = cards.deck_id and decks.is_public = true)
 -- );
+
+-- ============================================================
+-- Migration v3: Icon support (front_icon, back_icon on cards)
+-- front_icon / back_icon store base64 data URIs or empty string
+-- ============================================================
+alter table public.cards add column if not exists front_icon text default '';
+alter table public.cards add column if not exists back_icon  text default '';
+
+-- Note: icons are stored as base64 data URIs directly in the DB column.
+-- Max size ~512 KB per icon (enforced in app layer).
+-- For uploaded user images: stored as base64.
+-- For auto-generated SVG icons (Tabler Icons MIT): stored as SVG data URIs.
