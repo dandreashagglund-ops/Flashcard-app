@@ -1853,6 +1853,21 @@ function AdminDecks({ uid, tags, themes, onUpdate }) {
     loadDeckCards(selected.id);
   }
 
+  const [selectedCards, setSelectedCards] = useState(new Set());
+  const [showMediaFetcher, setShowMediaFetcher] = useState(false);
+
+  function toggleCardSelect(id) {
+    setSelectedCards(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAll() {
+    if (selectedCards.size === deckCards.length) setSelectedCards(new Set());
+    else setSelectedCards(new Set(deckCards.map(c => c.id)));
+  }
+
   const filtered = decks.filter(d => d.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -1888,7 +1903,7 @@ function AdminDecks({ uid, tags, themes, onUpdate }) {
                       <td>{fmtDate(deck.created_at)}</td>
                       <td>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                          <button className="btn-sm btn-ghost-sm" onClick={() => setSelected(deck)}>✏️ Kort</button>
+                          <button className="btn-sm btn-ghost-sm" onClick={() => { setSelected(deck); setSelectedCards(new Set()); }}>✏️ Kort</button>
                           <button className="btn-sm btn-ghost-sm" onClick={() => togglePublic(deck)}>{deck.is_public ? "🔒 Gör privat" : "🌐 Publicera"}</button>
                           <button className="btn-sm btn-ghost-sm" onClick={() => toggleActive(deck)}>{deck.is_active !== false ? "Inaktivera" : "Aktivera"}</button>
                           <button className="btn-sm btn-danger-sm" onClick={() => deleteDeck(deck)}>Ta bort</button>
@@ -1906,11 +1921,18 @@ function AdminDecks({ uid, tags, themes, onUpdate }) {
         <>
           <div className="view-header" style={{ marginBottom: 16 }}>
             <div>
-              <button className="btn-ghost" onClick={() => { setSelected(null); setDeckCards([]); }}>← Tillbaka till listor</button>
+              <button className="btn-ghost" onClick={() => { setSelected(null); setDeckCards([]); setSelectedCards(new Set()); }}>← Tillbaka till listor</button>
               <h2 style={{ marginTop: 8 }}>{selected.theme_icon} {selected.name}</h2>
-              <p className="muted">{deckCards.length} kort</p>
+              <p className="muted">{deckCards.length} kort · {selectedCards.size} markerade</p>
             </div>
-            <button className="btn-primary" onClick={() => { setEditingCard(null); setShowCardEditor(true); }}>+ Nytt kort</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              {selectedCards.size > 0 && (
+                <button className="btn-primary" onClick={() => setShowMediaFetcher(true)}>
+                  🖼️ Hämta media för {selectedCards.size} kort
+                </button>
+              )}
+              <button className="btn-primary" onClick={() => { setEditingCard(null); setShowCardEditor(true); }}>+ Nytt kort</button>
+            </div>
           </div>
 
           {showCardEditor && (
@@ -1924,13 +1946,36 @@ function AdminDecks({ uid, tags, themes, onUpdate }) {
             />
           )}
 
+          {showMediaFetcher && (
+            <MediaFetcher
+              cards={deckCards.filter(c => selectedCards.has(c.id))}
+              onApply={async (updates) => {
+                for (const { id, patch } of updates) {
+                  await supabase.from("cards").update(patch).eq("id", id);
+                }
+                setShowMediaFetcher(false);
+                setSelectedCards(new Set());
+                loadDeckCards(selected.id);
+                onUpdate();
+              }}
+              onClose={() => setShowMediaFetcher(false)}
+            />
+          )}
+
           <div className="cards-table-wrap">
             <table className="cards-table">
               <thead>
                 <tr>
+                  <th style={{ width: 36 }}>
+                    <input type="checkbox"
+                      checked={deckCards.length > 0 && selectedCards.size === deckCards.length}
+                      onChange={toggleSelectAll}
+                      aria-label="Markera alla"
+                    />
+                  </th>
                   <th>Framsida</th>
                   <th>Baksida</th>
-                  <th>Kommentar</th>
+                  <th>Bild/Emoji</th>
                   <th>Aktiv</th>
                   <th>Flaggad</th>
                   <th>Åtgärder</th>
@@ -1938,10 +1983,29 @@ function AdminDecks({ uid, tags, themes, onUpdate }) {
               </thead>
               <tbody>
                 {deckCards.map(card => (
-                  <tr key={card.id} className={cn(!card.is_active && "row-inactive", card.is_flagged && "row-flagged")}>
-                    <td>{card.front_emoji && <span aria-hidden="true">{card.front_emoji} </span>}{card.front}</td>
+                  <tr key={card.id} className={cn(!card.is_active && "row-inactive", card.is_flagged && "row-flagged", selectedCards.has(card.id) && "row-selected")}>
+                    <td>
+                      <input type="checkbox"
+                        checked={selectedCards.has(card.id)}
+                        onChange={() => toggleCardSelect(card.id)}
+                        aria-label={`Markera ${card.front}`}
+                      />
+                    </td>
+                    <td>
+                      {card.front_emoji && <span aria-hidden="true">{card.front_emoji} </span>}
+                      {card.front}
+                    </td>
                     <td>{card.back_emoji && <span aria-hidden="true">{card.back_emoji} </span>}{card.back}</td>
-                    <td className="notes-cell">{card.notes}</td>
+                    <td>
+                      {card.front_image
+                        ? <img src={card.front_image} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 4 }} />
+                        : card.front_icon
+                          ? <img src={card.front_icon} alt="" style={{ width: 32, height: 32, opacity: 0.7 }} />
+                          : card.front_emoji
+                            ? <span style={{ fontSize: 22 }}>{card.front_emoji}</span>
+                            : <span className="muted">–</span>
+                      }
+                    </td>
                     <td>{card.is_active !== false ? "Ja" : "Nej"}</td>
                     <td>{card.is_flagged ? <span className="badge badge-red">🚩</span> : "–"}</td>
                     <td>
@@ -1959,6 +2023,246 @@ function AdminDecks({ uid, tags, themes, onUpdate }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MEDIA FETCHER — admin bulk-tilldelning av emoji/ikon/bild
+// ─────────────────────────────────────────────────────────────────
+const EMOJI_MAP = {
+  // djur
+  dog:"🐕",hund:"🐕",cat:"🐱",katt:"🐱",bird:"🐦",fågel:"🐦",fish:"🐟",fisk:"🐟",
+  rabbit:"🐰",kanin:"🐰",horse:"🐴",häst:"🐴",cow:"🐄",ko:"🐄",pig:"🐷",gris:"🐷",
+  lion:"🦁",tiger:"🐯",bear:"🐻",björn:"🐻",elephant:"🐘",elefant:"🐘",
+  // mat
+  apple:"🍎",äpple:"🍎",banana:"🍌",banan:"🍌",bread:"🍞",bröd:"🍞",
+  coffee:"☕",kaffe:"☕",water:"💧",vatten:"💧",pizza:"🍕",cake:"🎂",tårta:"🎂",
+  // natur
+  sun:"☀️",sol:"☀️",moon:"🌙",måne:"🌙",star:"⭐",stjärna:"⭐",cloud:"☁️",moln:"☁️",
+  rain:"🌧️",regn:"🌧️",snow:"❄️",snö:"❄️",tree:"🌲",träd:"🌲",flower:"🌸",blomma:"🌸",
+  // hem
+  house:"🏠",hus:"🏠",car:"🚗",bil:"🚗",book:"📚",bok:"📚",computer:"💻",dator:"💻",
+  phone:"📱",telefon:"📱",key:"🔑",nyckel:"🔑",clock:"⏰",klocka:"⏰",
+  // kropp
+  eye:"👁️",öga:"👁️",hand:"✋",hand:"✋",heart:"❤️",hjärta:"❤️",
+  // övrigt
+  school:"🏫",skola:"🏫",music:"🎵",musik:"🎵",money:"💰",pengar:"💰",
+  fire:"🔥",eld:"🔥",mountain:"⛰️",berg:"⛰️",ocean:"🌊",hav:"🌊",
+};
+
+function guessEmoji(word) {
+  if (!word) return null;
+  const key = word.toLowerCase().trim();
+  return EMOJI_MAP[key] || null;
+}
+
+async function fetchWikimediaImage(word) {
+  try {
+    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(word)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.thumbnail?.source || data?.originalimage?.source || null;
+  } catch { return null; }
+}
+
+async function fetchUnsplashImage(word, apiKey) {
+  try {
+    const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(word)}&per_page=1&client_id=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.results?.[0]?.urls?.small || null;
+  } catch { return null; }
+}
+
+function MediaFetcher({ cards, onApply, onClose }) {
+  const [mode, setMode] = useState("emoji"); // emoji | icon | wikimedia | unsplash
+  const [unsplashKey, setUnsplashKey] = useState("");
+  const [side, setSide] = useState("front"); // front | back
+  const [results, setResults] = useState({}); // cardId → { url, type, chosen }
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  async function fetchAll() {
+    setLoading(true); setProgress(0);
+    const next = {};
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const word = side === "front" ? card.front : card.back;
+      let result = null;
+
+      if (mode === "emoji") {
+        const emoji = guessEmoji(word);
+        if (emoji) result = { type: "emoji", value: emoji, preview: emoji };
+      } else if (mode === "icon") {
+        const iconUrl = lookupIcon(word);
+        if (iconUrl) result = { type: "icon", value: iconUrl, preview: iconUrl };
+      } else if (mode === "wikimedia") {
+        const imgUrl = await fetchWikimediaImage(word);
+        if (imgUrl) result = { type: "image", value: imgUrl, preview: imgUrl };
+      } else if (mode === "unsplash" && unsplashKey) {
+        const imgUrl = await fetchUnsplashImage(word, unsplashKey);
+        if (imgUrl) result = { type: "image", value: imgUrl, preview: imgUrl };
+      }
+
+      next[card.id] = { ...result, chosen: !!result, word };
+      setProgress(Math.round((i + 1) / cards.length * 100));
+    }
+    setResults(next);
+    setLoading(false);
+  }
+
+  function toggleChosen(id) {
+    setResults(prev => ({ ...prev, [id]: { ...prev[id], chosen: !prev[id].chosen } }));
+  }
+
+  async function handleApply() {
+    const updates = [];
+    for (const card of cards) {
+      const r = results[card.id];
+      if (!r?.chosen || !r.value) continue;
+      const patch = {};
+      if (r.type === "emoji") {
+        patch[side === "front" ? "front_emoji" : "back_emoji"] = r.value;
+      } else if (r.type === "icon") {
+        patch[side === "front" ? "front_icon" : "back_icon"] = r.value;
+      } else if (r.type === "image") {
+        patch[side === "front" ? "front_image" : "back_image"] = r.value;
+      }
+      if (Object.keys(patch).length) updates.push({ id: card.id, patch });
+    }
+    await onApply(updates);
+  }
+
+  const chosenCount = Object.values(results).filter(r => r?.chosen).length;
+  const foundCount = Object.values(results).filter(r => r?.value).length;
+
+  return (
+    <div className="editor-overlay" role="dialog" aria-modal="true" aria-label="Hämta media">
+      <div className="editor-card editor-card-wide media-fetcher">
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+          <h2>🖼️ Hämta media för {cards.length} kort</h2>
+          <button className="btn-ghost" onClick={onClose} aria-label="Stäng">✕</button>
+        </div>
+
+        <div className="media-config">
+          <div className="form-field">
+            <label className="form-label">Typ av media</label>
+            <div className="media-mode-btns">
+              {[
+                { id:"emoji", label:"😀 Emoji", desc:"Automatisk från ordlista" },
+                { id:"icon", label:"◈ SVG-ikon", desc:"Tabler Icons (MIT)" },
+                { id:"wikimedia", label:"📷 Wikimedia", desc:"Fria foton, ingen nyckel" },
+                { id:"unsplash", label:"🌅 Unsplash", desc:"Foton, API-nyckel krävs" },
+              ].map(m => (
+                <button key={m.id}
+                  className={cn("media-mode-btn", mode===m.id && "active")}
+                  onClick={() => setMode(m.id)}
+                  aria-pressed={mode===m.id}
+                >
+                  <span className="media-mode-label">{m.label}</span>
+                  <span className="media-mode-desc">{m.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {mode === "unsplash" && (
+            <div className="form-field">
+              <label className="form-label" htmlFor="unsplash-key">Unsplash Access Key</label>
+              <input id="unsplash-key" className="form-input" type="password"
+                value={unsplashKey} onChange={e => setUnsplashKey(e.target.value)}
+                placeholder="Hämta gratis på unsplash.com/developers"
+              />
+              <p className="import-format">Gratis konto ger 50 förfrågningar/timme. <a href="https://unsplash.com/developers" target="_blank" rel="noopener noreferrer">Registrera →</a></p>
+            </div>
+          )}
+
+          <div className="form-field">
+            <label className="form-label">Applicera på</label>
+            <div style={{ display:"flex", gap:8 }}>
+              <button className={cn("btn-ghost", side==="front" && "btn-active")} onClick={()=>setSide("front")} aria-pressed={side==="front"}>Framsida</button>
+              <button className={cn("btn-ghost", side==="back" && "btn-active")} onClick={()=>setSide("back")} aria-pressed={side==="back"}>Baksida</button>
+            </div>
+          </div>
+
+          <button className="btn-primary" onClick={fetchAll}
+            disabled={loading || (mode==="unsplash" && !unsplashKey)}
+            aria-busy={loading}
+          >
+            {loading ? `Hämtar… ${progress}%` : "Sök media →"}
+          </button>
+        </div>
+
+        {loading && (
+          <div className="media-progress-bar" aria-label={`${progress}% klart`}>
+            <div className="media-progress-fill" style={{ width: `${progress}%` }} />
+          </div>
+        )}
+
+        {Object.keys(results).length > 0 && (
+          <>
+            <div className="media-summary">
+              Hittade media för <strong>{foundCount}</strong> av {cards.length} kort.
+              <strong> {chosenCount}</strong> valda att spara.
+              <button className="btn-link" style={{marginLeft:12}}
+                onClick={() => setResults(prev => {
+                  const next = {...prev};
+                  Object.keys(next).forEach(id => { if (next[id]?.value) next[id] = {...next[id], chosen: true}; });
+                  return next;
+                })}>Markera alla</button>
+              <button className="btn-link" style={{marginLeft:8}}
+                onClick={() => setResults(prev => {
+                  const next = {...prev};
+                  Object.keys(next).forEach(id => { next[id] = {...next[id], chosen: false}; });
+                  return next;
+                })}>Avmarkera alla</button>
+            </div>
+
+            <div className="media-results-grid">
+              {cards.map(card => {
+                const r = results[card.id];
+                const word = side === "front" ? card.front : card.back;
+                return (
+                  <div key={card.id} className={cn("media-result-card", r?.chosen && r?.value && "chosen", !r?.value && "no-result")}>
+                    <div className="media-result-word">{word}</div>
+                    {r?.value ? (
+                      <>
+                        <div className="media-result-preview">
+                          {r.type === "emoji"
+                            ? <span style={{ fontSize: 40 }}>{r.value}</span>
+                            : r.type === "icon"
+                              ? <img src={r.value} alt="" style={{ width: 48, height: 48, opacity: 0.8 }} />
+                              : <img src={r.value} alt="" style={{ width: 80, height: 60, objectFit: "cover", borderRadius: 6 }} />
+                          }
+                        </div>
+                        <button
+                          className={cn("media-result-toggle", r.chosen && "active")}
+                          onClick={() => toggleChosen(card.id)}
+                          aria-pressed={r.chosen}
+                        >
+                          {r.chosen ? "✓ Vald" : "Välj"}
+                        </button>
+                      </>
+                    ) : (
+                      <div className="media-no-result">Ingen träff</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="editor-actions" style={{ marginTop: 16 }}>
+              <button className="btn-primary" onClick={handleApply} disabled={chosenCount === 0}>
+                Spara {chosenCount} kort →
+              </button>
+              <button className="btn-ghost" onClick={onClose}>Avbryt</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
