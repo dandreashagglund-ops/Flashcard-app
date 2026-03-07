@@ -133,7 +133,7 @@ function LandingPage() {
         </div>
       </header>
 
-      <section className="landing-hero">
+      <section className="landing-hero landing-hero-centered">
         <div className="landing-hero-text">
           <h1 className="landing-h1">Lär dig ord<br /><em>på riktigt</em></h1>
           <p className="landing-lead">Glosträning hjälper dig memorera ord och begrepp med flashcards, spaced repetition och emoji — gratis och enkelt.</p>
@@ -141,15 +141,6 @@ function LandingPage() {
             <button className="btn-primary btn-lg" onClick={() => setAuthMode("signup")}>Kom igång gratis →</button>
             <button className="btn-ghost btn-lg" onClick={() => setAuthMode("login")}>Logga in</button>
           </div>
-        </div>
-        <div className="landing-hero-card-demo" aria-hidden="true">
-          <div className="demo-card">
-            <div className="demo-card-inner">
-              <div className="demo-front"><span className="demo-emoji">🐕</span><span className="demo-word">hund</span><span className="demo-lang">🇸🇪 Svenska</span></div>
-              <div className="demo-back"><span className="demo-word">dog</span><span className="demo-lang">🇬🇧 Engelska</span><span className="demo-note">A four-legged domestic animal</span></div>
-            </div>
-          </div>
-          <div className="demo-hint">Klicka för att vända ↩</div>
         </div>
       </section>
 
@@ -1068,9 +1059,6 @@ function CardEditor({ card, tags, themes, deckId, onSave, onCancel }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-// IMPORT VIEW
-// ─────────────────────────────────────────────────────────────────
 function ImportView({ deck, uid, onUpdate }) {
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState([]);
@@ -1078,23 +1066,23 @@ function ImportView({ deck, uid, onUpdate }) {
   const [busy, setBusy] = useState(false);
 
   function parseCSV(text) {
-    return text.trim().split("\n").map(line=>{
-      const parts = line.split(",").map(p=>p.trim().replace(/^["']|["']$/g,""));
-      return { front:parts[0]||"", back:parts[1]||"", notes:parts[2]||"", front_emoji:parts[3]||"" };
-    }).filter(r=>r.front&&r.back);
+    return text.trim().split("\n").map(line => {
+      const parts = line.split(",").map(p => p.trim().replace(/^["']|["']$/g, ""));
+      return { front: parts[0]||"", back: parts[1]||"", notes: parts[2]||"", front_emoji: parts[3]||"" };
+    }).filter(r => r.front && r.back);
   }
 
-  useEffect(()=>{ if(csv) setPreview(parseCSV(csv).slice(0,5)); else setPreview([]); },[csv]);
+  useEffect(() => { if (csv) setPreview(parseCSV(csv).slice(0, 5)); else setPreview([]); }, [csv]);
 
   async function doImport() {
     setBusy(true); setStatus("");
     const rows = parseCSV(csv);
     if (!rows.length) { setStatus("Inga giltiga rader hittades."); setBusy(false); return; }
-    const inserts = rows.map(r=>({ ...r, user_id:uid, deck_id:deck.id }));
+    const inserts = rows.map(r => ({ ...r, user_id: uid, deck_id: deck.id }));
     const { error } = await supabase.from("cards").insert(inserts);
     if (error) { setStatus("Fel: " + error.message); }
     else {
-      await logEvent(uid, "data_imported", { deck_id:deck.id, count:rows.length });
+      await logEvent(uid, "data_imported", { deck_id: deck.id, count: rows.length });
       setStatus(`✓ ${rows.length} kort importerade!`); setCsv(""); onUpdate();
     }
     setBusy(false);
@@ -1108,17 +1096,27 @@ function ImportView({ deck, uid, onUpdate }) {
       <div className="import-box">
         <p className="import-format">Format per rad: <code>ord1, ord2, kommentar, emoji</code> (kommentar och emoji är valfria)</p>
         <p className="import-format">Exempel: <code>hund, dog, En fyrbent vän, 🐶</code></p>
-        <textarea className="form-input form-textarea import-textarea" value={csv} onChange={e=>setCsv(e.target.value)} placeholder={"hund, dog, En fyrbent vän, 🐶\nkatt, cat,,🐱\nfågel, bird"} rows={10} aria-label="CSV-data" />
-        {preview.length>0 && (
+        <textarea
+          className="form-input form-textarea import-textarea"
+          value={csv}
+          onChange={e => setCsv(e.target.value)}
+          placeholder={"hund, dog, En fyrbent vän, 🐶\nkatt, cat,,🐱\nfågel, bird"}
+          rows={10}
+          aria-label="CSV-data"
+        />
+        {preview.length > 0 && (
           <div className="import-preview">
             <strong>Förhandsgranskning ({preview.length} av {parseCSV(csv).length} rader):</strong>
-            <table className="cards-table"><thead><tr><th>Framsida</th><th>Baksida</th><th>Kommentar</th><th>Emoji</th></tr></thead>
-              <tbody>{preview.map((r,i)=><tr key={i}><td>{r.front}</td><td>{r.back}</td><td>{r.notes}</td><td>{r.front_emoji}</td></tr>)}</tbody>
+            <table className="cards-table">
+              <thead><tr><th>Framsida</th><th>Baksida</th><th>Kommentar</th><th>Emoji</th></tr></thead>
+              <tbody>{preview.map((r, i) => <tr key={i}><td>{r.front}</td><td>{r.back}</td><td>{r.notes}</td><td>{r.front_emoji}</td></tr>)}</tbody>
             </table>
           </div>
         )}
-        {status && <div className={cn("import-status",status.startsWith("✓")?"import-ok":"import-err")} role="status">{status}</div>}
-        <button className="btn-primary" onClick={doImport} disabled={!csv.trim()||busy} aria-busy={busy}>{busy?"Importerar…":"Importera"}</button>
+        {status && <div className={cn("import-status", status.startsWith("✓") ? "import-ok" : "import-err")} role="status">{status}</div>}
+        <button className="btn-primary" onClick={doImport} disabled={!csv.trim() || busy} aria-busy={busy}>
+          {busy ? "Importerar…" : "Importera"}
+        </button>
       </div>
     </div>
   );
@@ -1329,9 +1327,12 @@ function GlobalStatsView({ uid, decks }) {
 // PROFILE VIEW (GDPR etc.)
 // ─────────────────────────────────────────────────────────────────
 function ProfileView({ profile, uid, onUpdate }) {
-  const [username, setUsername] = useState(profile.username||"");
+  const [username, setUsername] = useState(profile?.username||"");
   const [msg, setMsg] = useState("");
   const [showGdpr, setShowGdpr] = useState(false);
+
+  const roleLabels = { sysadmin:"Systemadministratör", group_manager:"Gruppansvarig", user:"Användare" };
+  const planLabels = { free:"Gratis", paid:"Betald" };
 
   async function saveProfile() {
     await supabase.from("profiles").update({ username }).eq("id", uid);
@@ -1352,12 +1353,23 @@ function ProfileView({ profile, uid, onUpdate }) {
     <div className="view">
       <h1 className="view-title">Min profil</h1>
       <div className="profile-card">
+        <div className="profile-info-box">
+          <div className="profile-avatar" aria-hidden="true">👤</div>
+          <div>
+            <div className="profile-name">{profile?.username || "(inget användarnamn)"}</div>
+            <div className="profile-role-badge">{roleLabels[profile?.role] || profile?.role}</div>
+            <div className="profile-plan-badge">{planLabels[profile?.plan] || profile?.plan} plan</div>
+          </div>
+        </div>
         <div className="form-field">
           <label className="form-label" htmlFor="profile-username">Användarnamn</label>
           <input id="profile-username" className="form-input" value={username} onChange={e=>setUsername(e.target.value)} />
         </div>
-        <p className="form-label">Roll: <strong>{profile.role}</strong> · Plan: <strong>{profile.plan}</strong></p>
-        <p className="form-label">Aktiv sedan: {fmtDate(profile.created_at)}</p>
+        <div className="profile-meta">
+          <span>Roll: <strong>{roleLabels[profile?.role] || "–"}</strong></span>
+          <span>Plan: <strong>{planLabels[profile?.plan] || "–"}</strong></span>
+          <span>Medlem sedan: <strong>{fmtDate(profile?.created_at)}</strong></span>
+        </div>
         {msg && <div className="auth-info" role="status">{msg}</div>}
         <button className="btn-primary" onClick={saveProfile}>Spara</button>
 
@@ -1401,8 +1413,11 @@ function AdminView({ uid, themes, tags, onUpdate }) {
   ];
 
   return (
-    <div className="view admin-view">
-      <h1 className="view-title">⚙️ Administration</h1>
+    <div className="view admin-view admin-bg">
+      <div className="admin-header-bar">
+        <span className="admin-badge" aria-label="Administratörspanel">⚙️ Administratörspanel</span>
+      </div>
+      <h1 className="view-title">Administration</h1>
       <div className="admin-tabs" role="tablist">
         {tabs.map(t=><button key={t.id} role="tab" aria-selected={tab===t.id} className={cn("admin-tab",tab===t.id&&"active")} onClick={()=>setTab(t.id)}>{t.label}</button>)}
       </div>
