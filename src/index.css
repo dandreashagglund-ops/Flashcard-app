@@ -573,3 +573,113 @@ body {
 
 /* ── Explore cards ───────────────────────────────────── */
 .explore-card .deck-card-body { cursor: default; }
+
+/* ── Icon system ─────────────────────────────────────── */
+.card-side-editor {
+  margin-bottom: 12px;
+}
+.card-side-label-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 4px;
+}
+.card-side-label-txt {
+  font-size: 13px; font-weight: 500; color: var(--text2);
+}
+.icon-mode-toggle {
+  display: flex; gap: 2px;
+}
+.icon-toggle-btn {
+  padding: 3px 10px; border: 1px solid var(--border); background: var(--bg2);
+  border-radius: 6px; font-size: 12px; cursor: pointer; color: var(--text2);
+  font-family: var(--font); transition: all 0.15s;
+}
+.icon-toggle-btn.active {
+  background: var(--text); color: var(--bg); border-color: var(--text);
+}
+.icon-editor-area {
+  background: var(--bg2); border: 1px dashed var(--border);
+  border-radius: 8px; padding: 12px; margin-top: 6px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.icon-preview-wrap {
+  display: flex; align-items: center; gap: 12px;
+}
+.icon-preview-img {
+  width: 64px; height: 64px; object-fit: contain;
+  border-radius: 8px; background: white; padding: 4px;
+  border: 1px solid var(--border);
+}
+.icon-clear-btn {
+  font-size: 12px; color: var(--red); background: none; border: none;
+  cursor: pointer; text-decoration: underline;
+}
+.icon-empty {
+  font-size: 13px; color: var(--text3); font-style: italic;
+}
+.icon-upload-label {
+  display: inline-block; cursor: pointer; padding: 6px 14px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; font-size: 13px; color: var(--text2);
+  font-family: var(--font); transition: background 0.15s;
+}
+.icon-upload-label:hover { background: var(--bg3); }
+.icon-suggest-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px; background: var(--surface); border-radius: 6px;
+}
+.icon-suggest-label { font-size: 12px; color: var(--text3); }
+.icon-suggest-preview {
+  width: 32px; height: 32px; object-fit: contain;
+  background: white; padding: 2px; border-radius: 4px; border: 1px solid var(--border);
+}
+.icon-concept-name {
+  font-size: 12px; color: var(--text2); font-style: italic;
+}
+.icon-use-btn {
+  padding: 4px 12px; background: var(--accent2); color: white;
+  border: none; border-radius: 6px; font-size: 12px; cursor: pointer;
+  font-family: var(--font);
+}
+.icon-license-note {
+  font-size: 10px; color: var(--text3); font-style: italic;
+}
+.icon-error {
+  font-size: 12px; color: var(--red); background: #fde8e8;
+  padding: 6px 10px; border-radius: 6px;
+}
+
+/* ── Card icon in flashcard ──────────────────────────── */
+.card-icon-wrap {
+  display: flex; justify-content: center; margin: 8px 0;
+}
+.card-icon-img {
+  width: 100px; height: 100px; object-fit: contain;
+  opacity: 0.85;
+}
+
+/* ── Card item icons ─────────────────────────────────── */
+.card-item-sides {
+  display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px;
+}
+.card-item-side {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.card-item-sep {
+  padding-top: 8px; color: var(--text3); font-size: 14px; flex-shrink: 0;
+}
+.card-item-icon {
+  width: 40px; height: 40px; object-fit: contain;
+  background: white; border-radius: 6px; padding: 2px;
+  border: 1px solid var(--border);
+}
+
+/* ── Wide modal ──────────────────────────────────────── */
+.modal-wide {
+  max-width: 560px !important;
+}
+
+/* ── Icon attribution on cards ──────────────────────── */
+.card-icon-attribution {
+  font-size: 9px; color: var(--text3); text-align: center;
+  margin-top: 2px; opacity: 0.7;
+}

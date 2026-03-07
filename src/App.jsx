@@ -8,6 +8,136 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function cn(...classes) { return classes.filter(Boolean).join(" "); }
 
+// ── Icon system ──────────────────────────────────────────────────
+// Noun Project open-access icons via their API (CC BY 3.0 with attribution)
+// We use a local icon search that maps concept keywords → SVG icons from open sources
+// Icons are stored in Supabase storage as SVG data URIs with metadata
+
+// Map of English concept words to open-source SVG icon paths (Tabler Icons - MIT license)
+const TABLER_ICONS = {
+  dog: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5h2M10 8h4M12 8c2.667 2.333 4 4.667 4 7a4 4 0 0 1-8 0c0-2.333 1.333-4.667 4-7z"/><path d="M7 7l-2 3 2 2M17 7l2 3-2 2"/></svg>`,
+  cat: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l1-4 3 3M19 8l-1-4-3 3M9 12a1 1 0 1 0 2 0 1 1 0 0 0-2 0M13 12a1 1 0 1 0 2 0 1 1 0 0 0-2 0"/><path d="M7 8c0 4 1 7 5 8s5-4 5-8"/></svg>`,
+  house: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12H3l9-9 9 9h-2M5 12v7a1 1 0 0 0 1 1h4v-4h4v4h4a1 1 0 0 0 1-1v-7"/></svg>`,
+  car: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17m-2 0a2 2 0 1 0 4 0 2 2 0 0 0-4 0M17 17m-2 0a2 2 0 1 0 4 0 2 2 0 0 0-4 0"/><path d="M5 17H3v-6l2-5h11l3 5 1 3v3h-2M5 17h12M3 11h18"/></svg>`,
+  book: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19a9 9 0 0 1 9 0 9 9 0 0 1 9 0M3 6a9 9 0 0 1 9 0 9 9 0 0 1 9 0M3 6v13M12 6v13M21 6v13"/></svg>`,
+  tree: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l4 8H8zM12 11l5 9H7zM12 20v1M10 21h4"/></svg>`,
+  sun: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`,
+  moon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg>`,
+  star: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.75l-6.172 3.245 1.179-6.873-4.993-4.867 6.9-1.002L12 2.25l3.086 6.003 6.9 1.002-4.993 4.867 1.179 6.873z"/></svg>`,
+  heart: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428-7.5-7.428a5 5 0 1 1 7.5-6.566 5 5 0 1 1 7.5 6.566z"/></svg>`,
+  bird: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h.01M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.99.2L12 10H3.4z"/><path d="M6 18v.01M9.5 18v.01"/></svg>`,
+  fish: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16.69 7.44A6.973 6.973 0 0 0 12 5c-3.868 0-7 3.132-7 7s3.132 7 7 7a6.973 6.973 0 0 0 4.69-1.44"/><path d="M20 12l-5-3v6l5-3zM7.5 11.5A.5.5 0 1 0 7.5 12.5.5.5 0 0 0 7.5 11.5z"/></svg>`,
+  flower: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 9a3 3 0 0 0 2.83-4A3 3 0 0 0 12 3a3 3 0 0 0-2.83 2A3 3 0 0 0 12 9zM15 12a3 3 0 0 0 2 2.83A3 3 0 0 0 21 12a3 3 0 0 0-2-2.83A3 3 0 0 0 15 12zM12 15a3 3 0 0 0-2.83 2A3 3 0 0 0 12 21a3 3 0 0 0 2.83-2A3 3 0 0 0 12 15zM9 12a3 3 0 0 0-2-2.83A3 3 0 0 0 3 12a3 3 0 0 0 2 2.83A3 3 0 0 0 9 12z"/></svg>`,
+  apple: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.25c4.125 0 7.5-5.25 7.5-9.75 0-4.125-3-6.75-7.5-6.75S4.5 6.375 4.5 10.5c0 4.5 3.375 9.75 7.5 9.75z"/><path d="M12 3.75V2.25M10.5 3l3-1.5"/></svg>`,
+  water: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6 10 4 14 4 16a8 8 0 0 0 16 0c0-2-2-6-8-14z"/></svg>`,
+  fire: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c0-4-3-7-3-7s-1 3 0 5c-3-2-4-5-4-5S3 9 4 13a8 8 0 0 0 16 0c0-5-4-9-4-9s1 5-4 8z"/></svg>`,
+  food: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h20M2 12a10 10 0 0 0 20 0M12 2v4M8 3v3M16 3v3"/></svg>`,
+  music: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="17" r="2"/><polyline points="8 19 8 5 20 3 20 17"/><line x1="8" y1="11" x2="20" y2="9"/></svg>`,
+  school: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5-10-5z"/><path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"/></svg>`,
+  person: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/></svg>`,
+  phone: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.46 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.38 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`,
+  computer: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
+  clock: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+  money: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`,
+  key: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>`,
+  door: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 12m-1 0a1 1 0 1 0 2 0 1 1 0 0 0-2 0"/><path d="M5 21v-16a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/><path d="M3 21h18"/></svg>`,
+  window: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 12h20M12 4v16"/></svg>`,
+  chair: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20v-6M18 20v-6M6 14H4a2 2 0 0 1-2-2V8h20v4a2 2 0 0 1-2 2h-2M6 8V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v4"/></svg>`,
+  table: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h18M6 8v10M18 8v10M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2"/></svg>`,
+  bed: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v11M21 7v11M3 15h18M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2"/></svg>`,
+  cloud: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>`,
+  rain: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="16" y1="13" x2="16" y2="21"/><line x1="8" y1="13" x2="8" y2="21"/><line x1="12" y1="15" x2="12" y2="23"/><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/></svg>`,
+  snow: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 7l-5-5-5 5M17 17l-5 5-5-5M2 12l5-5 5 5-5 5-5-5zM22 12l-5-5-5 5 5 5 5-5z"/></svg>`,
+  mountain: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20l7-14 4 8 3-4 4 10H3z"/></svg>`,
+  sea: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h2l2-3 2 6 2-4 2 2h10"/><path d="M2 17h2l2-3 2 6 2-4 2 2h10"/></svg>`,
+  bread: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>`,
+  milk: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2h8M7 4l-1 16h12L17 4M10 10h4"/></svg>`,
+  egg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22C6.5 22 4 17 4 14a8 8 0 1 1 16 0c0 3-2.5 8-8 8z"/></svg>`,
+  eye: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  hand: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>`,
+  foot: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 16l-2 4h12l-2-4M8 16c0-4 0-8 4-11 4 3 4 7 4 11"/></svg>`,
+  nose: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c0 6-4 10-4 14a4 4 0 0 0 8 0c0-4-4-8-4-14z"/></svg>`,
+  ear: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12a6 6 0 0 1 12 0c0 4-6 8-6 8"/><path d="M12 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>`,
+};
+
+// Concept synonyms – maps many words (in any lang) to icon keys
+const ICON_CONCEPT_MAP = {
+  // Animals
+  dog: "dog", hund: "dog", chien: "dog", perro: "dog", cane: "dog", hond: "dog",
+  cat: "cat", katt: "cat", chat: "cat", gato: "cat", gatto: "cat", kat: "cat",
+  bird: "bird", fågel: "bird", oiseau: "bird", pajaro: "bird", uccello: "bird",
+  fish: "fish", fisk: "fish", poisson: "fish", pez: "fish", pesce: "fish",
+  // Nature
+  tree: "tree", träd: "tree", arbre: "tree", arbol: "tree", albero: "tree",
+  flower: "flower", blomma: "flower", fleur: "flower", flor: "flower", fiore: "flower",
+  sun: "sun", sol: "sun", soleil: "sun", sonne: "sun",
+  moon: "moon", måne: "moon", lune: "moon", mond: "moon",
+  star: "star", stjärna: "star", étoile: "star", estrella: "star",
+  cloud: "cloud", moln: "cloud", nuage: "cloud", wolke: "cloud", nube: "cloud",
+  rain: "rain", regn: "rain", pluie: "rain", regen: "rain", lluvia: "rain",
+  snow: "snow", snö: "snow", neige: "snow", schnee: "snow", nieve: "snow",
+  mountain: "mountain", berg: "mountain", montagne: "mountain", montaña: "mountain",
+  sea: "sea", hav: "sea", mer: "sea", meer: "sea", mar: "sea",
+  water: "water", vatten: "water", eau: "water", wasser: "water", agua: "water",
+  fire: "fire", eld: "fire", feu: "fire", feuer: "fire", fuego: "fire",
+  // Food
+  apple: "apple", äpple: "apple", pomme: "apple", apfel: "apple", manzana: "apple",
+  bread: "bread", bröd: "bread", pain: "bread", brot: "bread", pan: "bread",
+  milk: "milk", mjölk: "milk", lait: "milk", milch: "milk", leche: "milk",
+  egg: "egg", ägg: "egg", oeuf: "egg", ei: "egg", huevo: "egg",
+  food: "food", mat: "food", nourriture: "food", essen: "food", comida: "food",
+  // Objects
+  house: "house", hus: "house", maison: "house", haus: "house", casa: "house",
+  home: "house", hem: "house", foyer: "house",
+  car: "car", bil: "car", voiture: "car", auto: "car", coche: "car",
+  book: "book", bok: "book", livre: "book", buch: "book", libro: "book",
+  phone: "phone", telefon: "phone", téléphone: "phone", handy: "phone",
+  computer: "computer", dator: "computer", ordinateur: "computer",
+  clock: "clock", klocka: "clock", horloge: "clock", uhr: "clock", reloj: "clock",
+  money: "money", pengar: "money", argent: "money", geld: "money", dinero: "money",
+  key: "key", nyckel: "key", clé: "key", schlüssel: "key", llave: "key",
+  door: "door", dörr: "door", porte: "door", tür: "door", puerta: "door",
+  window: "window", fönster: "window", fenêtre: "window", fenster: "window", ventana: "window",
+  chair: "chair", stol: "chair", chaise: "chair", stuhl: "chair", silla: "chair",
+  table: "table", bord: "table", tisch: "table", mesa: "table",
+  bed: "bed", säng: "bed", lit: "bed", bett: "bed", cama: "bed",
+  // Body
+  eye: "eye", öga: "eye", oeil: "eye", auge: "eye", ojo: "eye",
+  hand: "hand", hand: "hand", main: "hand", hand_de: "hand", mano: "hand",
+  ear: "ear", öra: "ear", oreille: "ear", ohr: "ear", oreja: "ear",
+  nose: "nose", näsa: "nose", nez: "nose", nase: "nose", nariz: "nose",
+  foot: "foot", fot: "foot", pied: "foot", fuss: "foot", pie: "foot",
+  heart: "heart", hjärta: "heart", coeur: "heart", herz: "heart", corazon: "heart",
+  // Music, school, etc.
+  music: "music", musik: "music", musique: "music", musica: "music",
+  school: "school", skola: "school", école: "school", schule: "school", escuela: "school",
+  // People
+  person: "person", person_sv: "person", personne: "person", homme: "person",
+};
+
+const ICON_LICENSE = {
+  source: "Tabler Icons",
+  license: "MIT",
+  url: "https://tabler.io/icons",
+  attribution_required: false,
+};
+
+function svgToDataUrl(svgString) {
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgString);
+}
+
+function lookupIcon(word) {
+  if (!word) return null;
+  const key = word.toLowerCase().trim();
+  const conceptKey = ICON_CONCEPT_MAP[key];
+  if (!conceptKey) return null;
+  const svg = TABLER_ICONS[conceptKey];
+  if (!svg) return null;
+  return { dataUrl: svgToDataUrl(svg), concept: conceptKey, license: ICON_LICENSE };
+}
+
+const MAX_UPLOAD_SIZE = 512 * 1024; // 512 KB
+
 // ── Language metadata ────────────────────────────────────────────
 const LANG_FLAGS = {
   sv: "🇸🇪", en: "🇬🇧", de: "🇩🇪", fr: "🇫🇷", es: "🇪🇸",
@@ -642,6 +772,8 @@ function StudyView({ cards, tags, progress, tagFilter, direction, onProgressUpda
   const answerText = showBackFirst ? card?.front : card?.back;
   const questionLabel = showBackFirst ? labels.back : labels.front;
   const answerLabel = showBackFirst ? labels.front : labels.back;
+  const questionIcon = showBackFirst ? (card?.back_icon || "") : (card?.front_icon || "");
+  const answerIcon = showBackFirst ? (card?.front_icon || "") : (card?.back_icon || "");
 
   async function recordAnswer(correct) {
     if (!card) return;
@@ -689,7 +821,7 @@ function StudyView({ cards, tags, progress, tagFilter, direction, onProgressUpda
         <div className="flashcard-inner">
           <div className="flashcard-front">
             <div className="card-side-label">{questionLabel}</div>
-            {!showBackFirst && card?.image_url && <img src={card.image_url} alt={card.front} className="card-image" />}
+            {questionIcon && <div className="card-icon-wrap"><img src={questionIcon} alt="" className="card-icon-img" /></div>}
             <div className="card-text">{questionText}</div>
             {card?.tags?.length > 0 && (
               <div className="card-tags-row">
@@ -699,9 +831,12 @@ function StudyView({ cards, tags, progress, tagFilter, direction, onProgressUpda
           </div>
           <div className="flashcard-back">
             <div className="card-side-label">{answerLabel}</div>
+            {answerIcon && <div className="card-icon-wrap"><img src={answerIcon} alt="" className="card-icon-img" /></div>}
             <div className="card-text card-back-text">{answerText}</div>
-            {!showBackFirst && card?.notes && <div className="card-notes">{card.notes}</div>}
-            {showBackFirst && card?.image_url && <img src={card.image_url} alt="" className="card-image" />}
+            {card?.notes && <div className="card-notes">{card.notes}</div>}
+            {(questionIcon && questionIcon === answerIcon) || (!questionIcon && !answerIcon) ? null :
+              (questionIcon?.includes("Tabler") || answerIcon?.includes("Tabler")) ? null : null
+            }
           </div>
         </div>
       </div>
@@ -769,9 +904,17 @@ function CardsView({ cards, tags, onUpdate, uid, deckId, lang }) {
         {filtered.length === 0 && <p className="muted">{labels.noCards}</p>}
         {filtered.map(c => (
           <div key={c.id} className="card-item">
-            {c.image_url && <img src={c.image_url} alt="" className="card-item-img" />}
-            <div className="card-item-front">{c.front}</div>
-            <div className="card-item-back">{c.back}</div>
+            <div className="card-item-sides">
+              <div className="card-item-side">
+                {c.front_icon && <img src={c.front_icon} alt="" className="card-item-icon" />}
+                <div className="card-item-front">{c.front}</div>
+              </div>
+              <div className="card-item-sep">→</div>
+              <div className="card-item-side">
+                {c.back_icon && <img src={c.back_icon} alt="" className="card-item-icon" />}
+                <div className="card-item-back">{c.back}</div>
+              </div>
+            </div>
             {c.tags?.length > 0 && (
               <div className="card-tags-row">
                 {c.tags.map(tid => { const t = tags.find(t => t.id === tid); return t ? <span key={tid} className="card-tag-pill" style={{ background: t.color || "#666" }}>{t.name}</span> : null; })}
@@ -788,21 +931,81 @@ function CardsView({ cards, tags, onUpdate, uid, deckId, lang }) {
   );
 }
 
+function CardSideEditor({ label, textValue, iconUrl, onTextChange, onIconChange }) {
+  const [iconMode, setIconMode] = useState(!!iconUrl);
+  const [uploadError, setUploadError] = useState("");
+  const suggestedIcon = lookupIcon(textValue);
+
+  function handleFileUpload(e) {
+    setUploadError("");
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_SIZE) { setUploadError("Max filstorlek: 512 KB"); return; }
+    if (!file.type.startsWith("image/")) { setUploadError("Endast bildfiler är tillåtna"); return; }
+    const reader = new FileReader();
+    reader.onload = ev => { onIconChange(ev.target.result); };
+    reader.readAsDataURL(file);
+    setIconMode(true);
+  }
+
+  function applyAutoIcon() {
+    if (suggestedIcon) { onIconChange(suggestedIcon.dataUrl); setIconMode(true); }
+  }
+
+  function clearIcon() { onIconChange(""); setIconMode(false); }
+
+  return (
+    <div className="card-side-editor">
+      <div className="card-side-label-row">
+        <label className="card-side-label-txt">{label}</label>
+        <div className="icon-mode-toggle">
+          <button type="button" className={cn("icon-toggle-btn", !iconMode && "active")} onClick={() => setIconMode(false)}>✎ Text</button>
+          <button type="button" className={cn("icon-toggle-btn", iconMode && "active")} onClick={() => setIconMode(true)}>🖼 Bild</button>
+        </div>
+      </div>
+      <input className="modal-input" value={textValue} onChange={e => onTextChange(e.target.value)} placeholder={iconMode ? "Text (visas med bild)" : ""} />
+      {iconMode && (
+        <div className="icon-editor-area">
+          {iconUrl
+            ? <div className="icon-preview-wrap">
+                <img src={iconUrl} alt="icon" className="icon-preview-img" />
+                <button type="button" className="icon-clear-btn" onClick={clearIcon}>✕ Ta bort</button>
+              </div>
+            : <div className="icon-empty">Ingen bild vald</div>
+          }
+          <div className="icon-upload-row">
+            <label className="icon-upload-label">
+              ⬆ Ladda upp bild (max 512 KB)
+              <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleFileUpload} />
+            </label>
+          </div>
+          {suggestedIcon && !iconUrl && (
+            <div className="icon-suggest-row">
+              <span className="icon-suggest-label">Föreslagen ikon:</span>
+              <img src={suggestedIcon.dataUrl} alt="suggested" className="icon-suggest-preview" />
+              <span className="icon-concept-name">{suggestedIcon.concept}</span>
+              <button type="button" className="icon-use-btn" onClick={applyAutoIcon}>Använd</button>
+              <span className="icon-license-note">{suggestedIcon.license.source} · {suggestedIcon.license.license}</span>
+            </div>
+          )}
+          {uploadError && <div className="icon-error">{uploadError}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CardEditor({ card, tags, labels, onSave, onCancel }) {
-  const [data, setData] = useState({ ...card });
+  const [data, setData] = useState({ front: "", back: "", notes: "", tags: [], front_icon: "", back_icon: "", ...card });
   function toggleTag(tid) {
     setData(d => ({ ...d, tags: d.tags?.includes(tid) ? d.tags.filter(t => t !== tid) : [...(d.tags || []), tid] }));
   }
   return (
     <div className="modal-overlay">
-      <div className="modal">
+      <div className="modal modal-wide">
         <h3>{data.id ? "Redigera kort" : "Nytt kort"}</h3>
-        <label>{labels.front}</label>
-        <input className="modal-input" value={data.front} onChange={e => setData(d => ({ ...d, front: e.target.value }))} />
-        <label>Bild-URL (valfritt)</label>
-        <input className="modal-input" placeholder="https://…" value={data.image_url || ""} onChange={e => setData(d => ({ ...d, image_url: e.target.value }))} />
-        <label>{labels.back}</label>
-        <textarea className="modal-input" rows={3} value={data.back} onChange={e => setData(d => ({ ...d, back: e.target.value }))} />
+        <CardSideEditor label={labels.front} textValue={data.front} iconUrl={data.front_icon || ""} onTextChange={v => setData(d => ({ ...d, front: v }))} onIconChange={v => setData(d => ({ ...d, front_icon: v }))} />
+        <CardSideEditor label={labels.back} textValue={data.back} iconUrl={data.back_icon || ""} onTextChange={v => setData(d => ({ ...d, back: v }))} onIconChange={v => setData(d => ({ ...d, back_icon: v }))} />
         <label>{labels.notes}</label>
         <input className="modal-input" value={data.notes || ""} onChange={e => setData(d => ({ ...d, notes: e.target.value }))} />
         <label>{labels.tags}</label>
@@ -869,20 +1072,39 @@ function ImportView({ deck, cards, tags, onUpdate, uid, lang }) {
 
   const isEnSv = ["en","sv"].includes(deck.front_lang) && ["en","sv"].includes(deck.back_lang);
   const labels = {
-    sv: { title: "Importera kort", csvFormat: "Format: framsida,baksida,anteckningar", previewBtn: "Förhandsgranska", importBtn: "Importera", cancel: "Rensa", top1000: "Importera topp 1000 engelska ord", top1000Desc: "De 1000 vanligaste engelska orden med svenska översättningar (kräver EN↔SV-ordlista).", importedMsg: n => `${n} kort importerade!`, tagsLabel: "Tilldela taggar (valfritt):" },
-    en: { title: "Import cards", csvFormat: "Format: front,back,notes", previewBtn: "Preview", importBtn: "Import", cancel: "Clear", top1000: "Import top 1000 English words", top1000Desc: "1000 most common English words with Swedish translations (requires EN↔SV deck).", importedMsg: n => `${n} cards imported!`, tagsLabel: "Assign tags (optional):" },
+    sv: { title: "Importera kort", csvFormat: "Format: framsida,baksida,anteckningar,taggar  (taggar = kommaseparerade taggnamn inom citattecken, t.ex. "substantiv,a2")", previewBtn: "Förhandsgranska", importBtn: "Importera", cancel: "Rensa", top1000: "Importera topp 1000 engelska ord", top1000Desc: "De 1000 vanligaste engelska orden med svenska översättningar (kräver EN↔SV-ordlista).", importedMsg: n => `${n} kort importerade!`, tagsLabel: "Tilldela taggar till alla importerade kort (valfritt):" },
+    en: { title: "Import cards", csvFormat: "Format: front,back,notes,tags  (tags = comma-separated tag names in quotes, e.g. "noun,a2")", previewBtn: "Preview", importBtn: "Import", cancel: "Clear", top1000: "Import top 1000 English words", top1000Desc: "1000 most common English words with Swedish translations (requires EN↔SV deck).", importedMsg: n => `${n} cards imported!`, tagsLabel: "Assign tags to all imported cards (optional):" },
   }[lang];
 
   function parseCSV(text) {
     return text.trim().split("\n").map(row => {
-      const parts = row.split(",").map(p => p.trim().replace(/^"|"$/g, ""));
-      return { front: parts[0] || "", back: parts[1] || "", notes: parts[2] || "" };
+      // Simple CSV parse supporting quoted fields
+      const parts = [];
+      let cur = "", inQ = false;
+      for (let i = 0; i < row.length; i++) {
+        const ch = row[i];
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === "," && !inQ) { parts.push(cur.trim()); cur = ""; }
+        else { cur += ch; }
+      }
+      parts.push(cur.trim());
+      const rowTagNames = (parts[3] || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+      // Match tag names to existing tag objects
+      const rowTagIds = rowTagNames.map(name => {
+        const found = tags.find(t => t.name.toLowerCase() === name);
+        return found ? found.id : null;
+      }).filter(Boolean);
+      return { front: parts[0] || "", back: parts[1] || "", notes: parts[2] || "", rowTagIds };
     }).filter(r => r.front && r.back);
   }
 
   async function handleImport() {
     if (!preview.length) return; setImporting(true);
-    const rows = preview.map(r => ({ ...r, user_id: uid, deck_id: deck.id, tags: selectedTags }));
+    const rows = preview.map(r => {
+      const merged = [...new Set([...selectedTags, ...(r.rowTagIds || [])])];
+      const { rowTagIds, ...rest } = r;
+      return { ...rest, user_id: uid, deck_id: deck.id, tags: merged };
+    });
     for (let i = 0; i < rows.length; i += 500) await supabase.from("cards").insert(rows.slice(i, i + 500));
     setMsg(labels.importedMsg(rows.length)); setPreview([]); setCsvText(""); onUpdate(); setImporting(false);
   }
@@ -934,8 +1156,13 @@ function ImportView({ deck, cards, tags, onUpdate, uid, lang }) {
         {preview.length > 0 && (
           <div className="preview-table-wrap">
             <table className="preview-table">
-              <thead><tr><th>Framsida</th><th>Baksida</th><th>Anteckningar</th></tr></thead>
-              <tbody>{preview.slice(0, 20).map((r, i) => <tr key={i}><td>{r.front}</td><td>{r.back}</td><td>{r.notes}</td></tr>)}</tbody>
+              <thead><tr><th>Framsida</th><th>Baksida</th><th>Anteckningar</th><th>Taggar (rad)</th></tr></thead>
+              <tbody>{preview.slice(0, 20).map((r, i) => (
+                <tr key={i}>
+                  <td>{r.front}</td><td>{r.back}</td><td>{r.notes}</td>
+                  <td>{(r.rowTagIds || []).map(tid => { const t = tags.find(t => t.id === tid); return t ? <span key={tid} className="card-tag-pill" style={{ background: t.color || "#888", fontSize: 11 }}>{t.name}</span> : null; })}</td>
+                </tr>
+              ))}</tbody>
             </table>
             {preview.length > 20 && <p className="muted">…och {preview.length - 20} till</p>}
           </div>
