@@ -386,6 +386,7 @@ function MainApp({ session }) {
   const [studyConfig, setStudyConfig] = useState({ tagId: null, themeId: null, direction: "front", onlyFlagged: false, onlyWithIcon: false });
   const [subjects, setSubjects] = useState([]); // all known subjects/courses
   const [copiedDeckIds, setCopiedDeckIds] = useState([]); // track which public decks user has copied
+  const [showNewDeckModal, setShowNewDeckModal] = useState(false);
   const sessionStart = useRef(Date.now());
   const cardsShownRef = useRef(0);
 
@@ -467,8 +468,6 @@ function MainApp({ session }) {
 
   const isAdmin = profile?.role === "sysadmin";
   const isManager = profile?.role === "group_manager" || isAdmin;
-
-  const [showNewDeckModal, setShowNewDeckModal] = useState(false);
 
   // Don't render until profile is loaded — prevents admin nav from disappearing on first render
   if (!profile) return <div className="splash" role="status"><div className="splash-logo">✦</div><p>Laddar profil…</p></div>;
