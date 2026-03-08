@@ -455,7 +455,15 @@ function MainApp({ session }) {
 
   function openDeck(deck) { setActiveDeck(deck); setView("home"); }
   function goHome() { setActiveDeck(null); setView("decks"); loadDecks(); }
-  function startStudy(cfg = {}) { setStudyConfig(c => ({...c,...cfg})); setView("study"); }
+  function startStudy(cfg = {}) {
+    if (cfg._crossDeckCards) {
+      setStudyConfig(c => ({...c,...cfg}));
+      setActiveDeck(null);
+    } else {
+      setStudyConfig(c => ({...c,...cfg}));
+    }
+    setView("study");
+  }
 
   const isAdmin = profile?.role === "sysadmin";
   const isManager = profile?.role === "group_manager" || isAdmin;
@@ -477,7 +485,7 @@ function MainApp({ session }) {
     { id:"decks", icon:"◧", label:"Ordlistor" },
     { id:"new_deck", icon:"＋", label:"Skapa lista" },
     { id:"explore", icon:"🌐", label:"Utforska" },
-    { id:"study_theme", icon:"🎯", label:"Öva tema" },
+    { id:"study_theme", icon:"🎯", label:"Öva" },
     { id:"stats", icon:"📈", label:"Statistik" },
     { id:"help", icon:"❓", label:"Hjälp" },
     { id:"profile", icon:"👤", label:"Profil" },
@@ -533,7 +541,7 @@ function MainApp({ session }) {
         {view==="admin" && isAdmin && <AdminView uid={uid} themes={themes} tags={tags} onUpdate={refreshAll} />}
         {view==="help" && <HelpView isAdmin={isAdmin} onClose={()=>setView(activeDeck?"home":"decks")} />}
         {view==="home" && activeDeck && <HomeView deck={activeDeck} cards={cards} tags={tags} themes={themes} progress={progress} onStudy={startStudy} onUpdate={refreshAll} />}
-        {view==="study" && activeDeck && <StudyView cards={cards} tags={tags} themes={themes} progress={progress} config={studyConfig} onProgressUpdate={refreshAll} uid={uid} cardsShownRef={cardsShownRef} />}
+        {view==="study" && (activeDeck || studyConfig._crossDeckCards) && <StudyView cards={studyConfig._crossDeckCards || cards} tags={tags} themes={themes} progress={progress} config={studyConfig} onProgressUpdate={refreshAll} uid={uid} cardsShownRef={cardsShownRef} onBack={studyConfig._crossDeckCards ? ()=>{setView("study_theme");} : null} />}
         {view==="cards" && activeDeck && <CardsView cards={cards} tags={tags} themes={themes} onUpdate={refreshAll} uid={uid} deckId={activeDeck.id} />}
         {view==="import" && activeDeck && <ImportView deck={activeDeck} uid={uid} onUpdate={refreshAll} themes={themes} tags={tags} />}
       </main>
@@ -1136,7 +1144,7 @@ function StatCard({ label, value, accent }) {
 // ─────────────────────────────────────────────────────────────────
 // STUDY VIEW
 // ─────────────────────────────────────────────────────────────────
-function StudyView({ cards, tags, themes, progress, config, onProgressUpdate, uid, cardsShownRef }) {
+function StudyView({ cards, tags, themes, progress, config, onProgressUpdate, uid, cardsShownRef, onBack }) {
   const { tagId, themeId, direction="front", onlyFlagged, onlyWithIcon, onlyDue, onlyFavorites, onlyEverWrong, onlyLastWrong, hideFlagged } = config;
 
   const queue = useMemo(() => {
@@ -1217,6 +1225,7 @@ function StudyView({ cards, tags, themes, progress, config, onProgressUpdate, ui
   if (queue.length===0) return (
     <div className="view center-msg">
       <p className="muted">Inga kort att träna just nu.</p>
+      {onBack && <button className="btn-ghost" onClick={onBack} style={{marginTop:16}}>← Tillbaka</button>}
     </div>
   );
 
@@ -1230,7 +1239,10 @@ function StudyView({ cards, tags, themes, progress, config, onProgressUpdate, ui
           <span className="correct-txt">✓ {sessionCorrect} rätt</span>
           <span className="wrong-txt">✗ {sessionWrong} fel</span>
         </div>
-        <button className="btn-primary" onClick={()=>{setIdx(0);setDone(false);setSessionCorrect(0);setSessionWrong(0);}}>Öva igen</button>
+        <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",marginTop:8}}>
+          <button className="btn-primary" onClick={()=>{setIdx(0);setDone(false);setSessionCorrect(0);setSessionWrong(0);}}>Öva igen</button>
+          {onBack && <button className="btn-ghost" onClick={onBack}>← Tillbaka</button>}
+        </div>
       </div>
     </div>
   );
@@ -1807,6 +1819,7 @@ function ExploreView({ uid, tags, themes, onImport, copiedDeckIds=[] }) {
 
   const sorted = useMemo(()=>{
     let d = decks.filter(deck=>
+      !copiedIds.includes(deck.id) &&
       deck.name.toLowerCase().includes(search.toLowerCase()) &&
       (!filterTheme || (deck.theme_ids||[]).includes(filterTheme))
     );
@@ -1815,7 +1828,7 @@ function ExploreView({ uid, tags, themes, onImport, copiedDeckIds=[] }) {
     else if (sort==="new") d.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
     else if (sort==="wrong") d.sort((a,b)=>a.name.localeCompare(b.name));
     return d;
-  },[decks, search, sort, filterTheme, cardCounts]);
+  },[decks, search, sort, filterTheme, cardCounts, copiedIds]);
 
   return (
     <div className="view">
@@ -1878,51 +1891,194 @@ function ExploreView({ uid, tags, themes, onImport, copiedDeckIds=[] }) {
 // STUDY BY THEME (träna ett tema från alla listor)
 // ─────────────────────────────────────────────────────────────────
 function StudyThemeView({ uid, themes, tags, onStart }) {
-  const [selected, setSelected] = useState(null);
-  const [cards, setCards] = useState([]);
-  const [progress, setProgress] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [onlyWithIcon, setOnlyWithIcon] = useState(false);
+  const [allCards, setAllCards] = useState([]);
+  const [allDecks, setAllDecks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("themes"); // themes | tags | subjects
+  const [studyTarget, setStudyTarget] = useState(null); // { type, id/key, label, cards }
+  const [studyLoading, setStudyLoading] = useState(false);
 
-  async function loadThemeCards(themeId) {
-    setLoading(true);
-    const [{ data: c }, { data: p }] = await Promise.all([
-      supabase.from("cards").select("*").contains("theme_ids",[themeId]).eq("user_id",uid),
-      supabase.from("progress").select("*").eq("user_id",uid),
-    ]);
-    setCards(c||[]);
-    const pm={}; (p||[]).forEach(r=>pm[r.card_id]=r); setProgress(pm);
-    setLoading(false);
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const [{ data: c }, { data: d }] = await Promise.all([
+        supabase.from("cards").select("id,theme_ids,tag_ids,deck_id,front,back,front_emoji,front_icon,back_emoji,back_icon,notes,difficulty,is_active,view_count,flag_count,is_flagged").eq("user_id", uid),
+        supabase.from("decks").select("id,name,description").eq("user_id", uid),
+      ]);
+      setAllCards(c || []);
+      setAllDecks(d || []);
+      setLoading(false);
+    })();
+  }, [uid]);
+
+  // Compute card counts per theme
+  const themeCounts = useMemo(() => {
+    const m = {};
+    allCards.forEach(c => (c.theme_ids || []).forEach(tid => { m[tid] = (m[tid] || 0) + 1; }));
+    return m;
+  }, [allCards]);
+
+  // Compute card counts per tag
+  const tagCounts = useMemo(() => {
+    const m = {};
+    allCards.forEach(c => (c.tag_ids || []).forEach(tid => { m[tid] = (m[tid] || 0) + 1; }));
+    return m;
+  }, [allCards]);
+
+  // Extract subjects from deck descriptions
+  const subjects = useMemo(() => {
+    const map = {}; // subject → set of deck_ids
+    allDecks.forEach(d => {
+      if (!d.description) return;
+      d.description.split(/[·,]/).map(s => s.trim()).filter(Boolean).forEach(s => {
+        if (!map[s]) map[s] = [];
+        map[s].push(d.id);
+      });
+    });
+    // Count cards per subject
+    return Object.entries(map).map(([name, deckIds]) => ({
+      name,
+      deckIds,
+      count: allCards.filter(c => deckIds.includes(c.deck_id)).length,
+    })).filter(s => s.count > 0).sort((a, b) => b.count - a.count);
+  }, [allDecks, allCards]);
+
+  async function startStudy(type, id, label) {
+    setStudyLoading(true);
+    let cardsToStudy = [];
+    if (type === "theme") {
+      const { data: p } = await supabase.from("progress").select("*").eq("user_id", uid);
+      const pm = {}; (p || []).forEach(r => pm[r.card_id] = r);
+      cardsToStudy = allCards.filter(c => (c.theme_ids || []).includes(id));
+      setStudyLoading(false);
+      onStart({ themeId: id, direction: "front" });
+      return;
+    } else if (type === "tag") {
+      setStudyLoading(false);
+      // We need a deck context — use all user cards filtered by tag
+      // Pass a special config that works with StudyView via a virtual "all cards" approach
+      // We'll pass tagId and let StudyView filter from all cards loaded via the deck.
+      // Since StudyView only gets cards from activeDeck, we need to handle this differently.
+      // Load all cards for user matching this tag and pass them directly.
+      const { data: fullCards } = await supabase.from("cards").select("*").eq("user_id", uid).contains("tag_ids", [id]);
+      onStart({ _crossDeckCards: fullCards || [], tagId: id, direction: "front" });
+      return;
+    } else if (type === "subject") {
+      // id is array of deck_ids
+      const subjectCards = allCards.filter(c => id.includes(c.deck_id));
+      const { data: fullCards } = await supabase.from("cards").select("*").eq("user_id", uid).in("deck_id", id);
+      setStudyLoading(false);
+      onStart({ _crossDeckCards: fullCards || [], direction: "front" });
+      return;
+    }
+    setStudyLoading(false);
   }
+
+  const tabs = [
+    { id: "themes", label: "🎨 Teman", count: themes.filter(t => themeCounts[t.id]).length },
+    { id: "tags", label: "🏷️ Taggar", count: tags.filter(t => tagCounts[t.id]).length },
+    { id: "subjects", label: "📚 Ämnen", count: subjects.length },
+  ];
+
+  if (loading) return <div className="view"><p className="muted">Laddar…</p></div>;
 
   return (
     <div className="view">
       <div className="view-header">
-        <h1 className="view-title">Öva ett tema</h1>
-        <p className="view-sub">Träna ord från alla dina listor som har ett visst tema.</p>
+        <div>
+          <h1 className="view-title">Öva</h1>
+          <p className="view-sub">Välj ett tema, tagg eller ämne och börja träna.</p>
+        </div>
       </div>
-      <div className="themes-grid">
-        {themes.map(t=>(
-          <button key={t.id} className={cn("theme-card",selected?.id===t.id&&"active")} style={{"--tc":t.color||"#c84b2f"}} onClick={()=>{ setSelected(t); loadThemeCards(t.id); }}>
-            <span className="theme-card-icon" aria-hidden="true">{t.icon}</span>
-            <span>{t.name}</span>
+
+      <div className="admin-tabs" role="tablist">
+        {tabs.map(t => (
+          <button key={t.id} role="tab" aria-selected={activeTab === t.id}
+            className={cn("admin-tab", activeTab === t.id && "active")}
+            onClick={() => setActiveTab(t.id)}>
+            {t.label} {t.count > 0 && <span className="tab-count">{t.count}</span>}
           </button>
         ))}
       </div>
-      {selected && !loading && (
-        <div className="theme-start-box">
-          <p>{cards.length} kort med temat <strong>{selected.icon} {selected.name}</strong></p>
-          <label className="form-label checkbox-label">
-            <input type="checkbox" checked={onlyWithIcon} onChange={e=>setOnlyWithIcon(e.target.checked)} />
-            <span>Bara kort med ikon/emoji</span>
-          </label>
-          {cards.length>0
-            ? <button className="btn-primary" onClick={()=>onStart({themeId:selected.id,onlyWithIcon,direction:"front"})}>Starta träning →</button>
-            : <p className="muted">Inga kort i detta tema ännu.</p>
-          }
+
+      {studyLoading && <p className="muted">Förbereder träning…</p>}
+
+      {activeTab === "themes" && (
+        <div>
+          {themes.filter(t => t.is_active !== false).length === 0 && (
+            <p className="muted center-msg">Inga teman tillgängliga ännu.</p>
+          )}
+          <div className="study-browse-grid">
+            {themes.filter(t => t.is_active !== false).map(t => {
+              const count = themeCounts[t.id] || 0;
+              return (
+                <button key={t.id}
+                  className={cn("study-browse-card", count === 0 && "study-browse-empty")}
+                  style={{ "--tc": t.color || "#c84b2f" }}
+                  onClick={() => count > 0 && startStudy("theme", t.id, t.name)}
+                  disabled={count === 0}
+                  title={count === 0 ? "Inga kort med det här temat" : `${count} kort`}
+                  aria-label={`${t.icon} ${t.name}, ${count} kort`}
+                >
+                  <span className="study-browse-icon" aria-hidden="true">{t.icon}</span>
+                  <span className="study-browse-name">{t.name}</span>
+                  <span className="study-browse-count">{count} kort</span>
+                  {count > 0 && <span className="study-browse-arrow">→</span>}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
-      {loading && <p className="muted">Laddar…</p>}
+
+      {activeTab === "tags" && (
+        <div>
+          {tags.filter(t => tagCounts[t.id]).length === 0 && (
+            <p className="muted center-msg">Inga taggar används på dina kort ännu.</p>
+          )}
+          <div className="study-browse-grid">
+            {tags.filter(t => tagCounts[t.id] > 0).sort((a, b) => (tagCounts[b.id] || 0) - (tagCounts[a.id] || 0)).map(t => {
+              const count = tagCounts[t.id] || 0;
+              return (
+                <button key={t.id}
+                  className="study-browse-card"
+                  style={{ "--tc": t.color || "#6b9bce" }}
+                  onClick={() => startStudy("tag", t.id, t.name)}
+                  aria-label={`${t.name}, ${count} kort`}
+                >
+                  <span className="study-browse-icon" aria-hidden="true">🏷️</span>
+                  <span className="study-browse-name">{t.name}</span>
+                  <span className="study-browse-count">{count} kort</span>
+                  <span className="study-browse-arrow">→</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "subjects" && (
+        <div>
+          {subjects.length === 0 && (
+            <p className="muted center-msg">Inga ämnen hittades. Lägg till ämnen när du importerar ord.</p>
+          )}
+          <div className="study-browse-grid">
+            {subjects.map(s => (
+              <button key={s.name}
+                className="study-browse-card"
+                style={{ "--tc": "#2f7dc8" }}
+                onClick={() => startStudy("subject", s.deckIds, s.name)}
+                aria-label={`${s.name}, ${s.count} kort`}
+              >
+                <span className="study-browse-icon" aria-hidden="true">📚</span>
+                <span className="study-browse-name">{s.name}</span>
+                <span className="study-browse-count">{s.count} kort</span>
+                <span className="study-browse-arrow">→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
