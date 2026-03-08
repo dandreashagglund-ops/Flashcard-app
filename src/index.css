@@ -473,3 +473,98 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); -web
 @media print {
   .sidebar, .toolbar, .deck-actions, .study-actions, .study-meta-actions { display:none; }
 }
+
+/* ── Tooltip ─────────────────────────────────────────────── */
+.tooltip-wrap { position: relative; display: inline-block; }
+.tooltip-box {
+  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: rgba(26,23,20,0.92); color: #fff; padding: 6px 10px; border-radius: 8px;
+  font-size: 12px; white-space: nowrap; max-width: 220px; white-space: normal;
+  pointer-events: none; z-index: 999; text-align: center; line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.help-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; background: var(--text3); color: white;
+  border-radius: 50%; font-size: 10px; font-weight: 700; cursor: help;
+  margin-left: 6px; flex-shrink: 0;
+}
+
+/* ── Autocomplete ────────────────────────────────────────── */
+.autocomplete-wrap { position: relative; }
+.autocomplete-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 500;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: var(--shadow-lg); list-style: none; margin: 2px 0 0; padding: 4px;
+  max-height: 220px; overflow-y: auto;
+}
+.autocomplete-item {
+  padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px;
+  transition: background 0.1s;
+}
+.autocomplete-item:hover, .autocomplete-item.highlighted { background: var(--bg2); }
+
+/* ── Tag Input ───────────────────────────────────────────── */
+.tag-input-wrap {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); min-height: 42px; cursor: text;
+}
+.tag-input-chip {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--accent2); color: white; padding: 3px 10px; border-radius: 20px;
+  font-size: 13px; font-weight: 500;
+}
+.tag-input-remove {
+  background: none; border: none; color: white; cursor: pointer;
+  font-size: 16px; line-height: 1; padding: 0; opacity: 0.8;
+}
+.tag-input-remove:hover { opacity: 1; }
+.tag-input-field { border: none; outline: none; background: transparent; font-family: var(--font); font-size: 14px; min-width: 120px; color: var(--text); }
+
+/* ── Flagged banner ──────────────────────────────────────── */
+.flagged-banner {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  background: #fff3f0; border: 1px solid #f5c6bc; border-radius: 10px; padding: 10px 16px;
+  font-size: 14px; color: var(--red); margin-bottom: 16px;
+}
+
+/* ── Study option warning variant ───────────────────────── */
+.study-opt-card.study-opt-warn {
+  border-color: var(--yellow); background: #fffbf0;
+}
+.study-opt-card.study-opt-warn:hover { background: #fff8e0; }
+
+/* ── Deck card copied ────────────────────────────────────── */
+.deck-card-copied { opacity: 0.85; }
+.deck-card-copied .btn-sm { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Import format box ───────────────────────────────────── */
+.import-format-box {
+  background: var(--bg2); border-radius: 10px; padding: 16px 20px; margin-bottom: 16px;
+  font-size: 14px;
+}
+.import-format-box h3 { font-size: 15px; margin-bottom: 8px; }
+.import-format-box code { font-family: var(--mono); font-size: 13px; background: var(--surface); padding: 4px 8px; border-radius: 6px; display: block; margin: 8px 0; }
+
+/* ── FAQ items ───────────────────────────────────────────── */
+.faq-item { border-left: 3px solid var(--accent2); padding: 12px 16px; margin-bottom: 12px; background: var(--surface); border-radius: 0 8px 8px 0; }
+.faq-item h3 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.faq-item p { font-size: 14px; color: var(--text2); margin: 0; }
+
+/* ── Mobile logout button visible ───────────────────────── */
+@media (max-width: 768px) {
+  .logout-btn { justify-content: center; }
+  .logout-btn .nav-label { display: none; }
+  .logout-btn .nav-icon { font-size: 20px; }
+}
+
+/* ── Sidebar logout always visible ──────────────────────── */
+.logout-btn {
+  background: none; border: none; margin-top: 4px;
+  border-top: 1px solid var(--border); padding-top: 12px;
+}
+.logout-btn:hover { background: #fde8e8 !important; color: var(--red) !important; }
+
+/* ── Stats section 2-col ─────────────────────────────────── */
+.stats-section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; }

@@ -78,9 +78,110 @@ async function logEvent(userId, eventType, metadata = {}) {
   await supabase.from("user_log").insert({ user_id: userId, event_type: eventType, metadata });
 }
 
-// ─────────────────────────────────────────────────────────────────
-// ROOT ROUTER
-// ─────────────────────────────────────────────────────────────────
+// ── Tooltip ───────────────────────────────────────────────────────
+function Tooltip({ text, children }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="tooltip-wrap" onMouseEnter={()=>setShow(true)} onMouseLeave={()=>setShow(false)} onFocus={()=>setShow(true)} onBlur={()=>setShow(false)}>
+      {children}
+      {show && text && <span className="tooltip-box" role="tooltip">{text}</span>}
+    </span>
+  );
+}
+
+// ── Autocomplete Input ────────────────────────────────────────────
+function AutocompleteInput({ value, onChange, suggestions=[], placeholder="", id, className="form-input", onSelect, allowNew=true, onKeyDown: externalKeyDown }) {
+  const [open, setOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(-1);
+  const ref = useRef(null);
+
+  const filtered = value.trim().length > 0
+    ? suggestions.filter(s => s.toLowerCase().includes(value.toLowerCase()) && s.toLowerCase() !== value.toLowerCase())
+    : suggestions.slice(0, 8);
+
+  useEffect(() => {
+    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  function handleKeyDown(e) {
+    if (externalKeyDown) externalKeyDown(e);
+    if (!open) { if (e.key === "ArrowDown") { setOpen(true); setHighlighted(0); } return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlighted(h => Math.min(h+1, filtered.length-1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlighted(h => Math.max(h-1, 0)); }
+    else if (e.key === "Enter" && highlighted >= 0) {
+      e.preventDefault();
+      const chosen = filtered[highlighted];
+      if (chosen) { onSelect ? onSelect(chosen) : onChange(chosen); setOpen(false); setHighlighted(-1); }
+    } else if (e.key === "Escape") { setOpen(false); }
+  }
+
+  return (
+    <div className="autocomplete-wrap" ref={ref}>
+      <input
+        id={id}
+        className={className}
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true); setHighlighted(-1); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        autoComplete="off"
+        aria-autocomplete="list"
+        aria-expanded={open && filtered.length > 0}
+        aria-haspopup="listbox"
+      />
+      {open && filtered.length > 0 && (
+        <ul className="autocomplete-list" role="listbox">
+          {filtered.map((s, i) => (
+            <li key={s} role="option" aria-selected={i === highlighted}
+              className={cn("autocomplete-item", i===highlighted && "highlighted")}
+              onMouseDown={e => { e.preventDefault(); onSelect ? onSelect(s) : onChange(s); setOpen(false); setHighlighted(-1); }}
+            >{s}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ── Tag Input (multi with autocomplete) ──────────────────────────
+function TagInput({ tags, allTags=[], onChange, placeholder="Lägg till tagg…" }) {
+  const [input, setInput] = useState("");
+  function add(val) {
+    const v = val.trim();
+    if (v && !tags.includes(v)) onChange([...tags, v]);
+    setInput("");
+  }
+  function remove(t) { onChange(tags.filter(x=>x!==t)); }
+  function handleKeyDown(e) {
+    if ((e.key === "Enter" || e.key === ",") && input.trim()) { e.preventDefault(); add(input); }
+    if (e.key === "Backspace" && !input && tags.length > 0) remove(tags[tags.length-1]);
+  }
+  const suggestions = allTags.filter(s => !tags.includes(s));
+  return (
+    <div className="tag-input-wrap">
+      {tags.map(t => (
+        <span key={t} className="tag-input-chip">
+          {t}
+          <button type="button" className="tag-input-remove" onClick={()=>remove(t)} aria-label={`Ta bort ${t}`}>×</button>
+        </span>
+      ))}
+      <AutocompleteInput
+        value={input}
+        onChange={setInput}
+        suggestions={suggestions}
+        placeholder={tags.length === 0 ? placeholder : ""}
+        className="tag-input-field"
+        onSelect={add}
+        onKeyDown={handleKeyDown}
+      />
+    </div>
+  );
+}
+
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -283,6 +384,8 @@ function MainApp({ session }) {
   const [themes, setThemes] = useState([]);
   const [progress, setProgress] = useState({});
   const [studyConfig, setStudyConfig] = useState({ tagId: null, themeId: null, direction: "front", onlyFlagged: false, onlyWithIcon: false });
+  const [subjects, setSubjects] = useState([]); // all known subjects/courses
+  const [copiedDeckIds, setCopiedDeckIds] = useState([]); // track which public decks user has copied
   const sessionStart = useRef(Date.now());
   const cardsShownRef = useRef(0);
 
@@ -306,12 +409,19 @@ function MainApp({ session }) {
   }, [uid]);
 
   const loadGlobals = useCallback(async () => {
-    const [{ data: th }, { data: tg }] = await Promise.all([
+    const [{ data: th }, { data: tg }, { data: dk }] = await Promise.all([
       supabase.from("themes").select("*").eq("is_active", true).order("name"),
       supabase.from("tags").select("*").or("scope.eq.global,user_id.eq." + uid).order("name"),
+      supabase.from("decks").select("id,tag_ids").eq("user_id", uid),
     ]);
     setThemes(th || []);
     setTags(tg || []);
+    // Extract all unique subject/course strings from deck tag_ids that are plain text (not UUIDs)
+    // We store subjects as a metadata field; for now load from all decks' descriptions as seed
+    // Load copied deck source IDs from user_log
+    const { data: logs } = await supabase.from("user_log").select("metadata").eq("user_id", uid).eq("event_type", "data_imported");
+    const ids = (logs||[]).map(l => l.metadata?.from_deck).filter(Boolean);
+    setCopiedDeckIds(ids);
   }, [uid]);
 
   const loadDecks = useCallback(async () => {
@@ -361,12 +471,14 @@ function MainApp({ session }) {
     { id:"cards", icon:"▦", label:"Kort" },
     { id:"import", icon:"↑", label:"Importera" },
     { id:"stats", icon:"◉", label:"Statistik" },
+    { id:"help", icon:"❓", label:"Hjälp" },
   ];
   const mainNav = [
     { id:"decks", icon:"◧", label:"Ordlistor" },
     { id:"explore", icon:"🌐", label:"Utforska" },
     { id:"study_theme", icon:"🎯", label:"Öva tema" },
     { id:"stats", icon:"📈", label:"Statistik" },
+    { id:"help", icon:"❓", label:"Hjälp" },
     { id:"profile", icon:"👤", label:"Profil" },
     ...(isAdmin ? [{ id:"admin", icon:"⚙️", label:"Admin" }] : []),
   ];
@@ -399,15 +511,16 @@ function MainApp({ session }) {
 
       <main className="content" id="main-content">
         {view==="decks" && <DecksView decks={decks} uid={uid} tags={tags} themes={themes} onOpen={openDeck} onUpdate={loadDecks} />}
-        {view==="explore" && <ExploreView uid={uid} tags={tags} themes={themes} onImport={loadDecks} />}
+        {view==="explore" && <ExploreView uid={uid} tags={tags} themes={themes} onImport={loadGlobals} copiedDeckIds={copiedDeckIds} />}
         {view==="study_theme" && <StudyThemeView uid={uid} themes={themes} tags={tags} onStart={startStudy} />}
         {view==="stats" && <GlobalStatsView uid={uid} decks={decks} />}
         {view==="profile" && profile && <ProfileView profile={profile} uid={uid} onUpdate={loadProfile} />}
         {view==="admin" && isAdmin && <AdminView uid={uid} themes={themes} tags={tags} onUpdate={refreshAll} />}
+        {view==="help" && <HelpView isAdmin={isAdmin} onClose={()=>setView(activeDeck?"home":"decks")} />}
         {view==="home" && activeDeck && <HomeView deck={activeDeck} cards={cards} tags={tags} themes={themes} progress={progress} onStudy={startStudy} onUpdate={refreshAll} />}
         {view==="study" && activeDeck && <StudyView cards={cards} tags={tags} themes={themes} progress={progress} config={studyConfig} onProgressUpdate={refreshAll} uid={uid} cardsShownRef={cardsShownRef} />}
         {view==="cards" && activeDeck && <CardsView cards={cards} tags={tags} themes={themes} onUpdate={refreshAll} uid={uid} deckId={activeDeck.id} />}
-        {view==="import" && activeDeck && <ImportView deck={activeDeck} uid={uid} onUpdate={refreshAll} />}
+        {view==="import" && activeDeck && <ImportView deck={activeDeck} uid={uid} onUpdate={refreshAll} themes={themes} tags={tags} />}
       </main>
     </div>
   );
@@ -482,7 +595,11 @@ function DecksView({ decks, uid, tags, themes, onOpen, onUpdate }) {
     await supabase.from("decks").delete().eq("id", id); onUpdate();
   }
   async function toggleShare(deck) {
-    await supabase.from("decks").update({ is_public: !deck.is_public }).eq("id", deck.id); onUpdate();
+    const newVal = !deck.is_public;
+    // Optimistically update local state so icon updates immediately
+    setDecks(prev => prev.map(d => d.id === deck.id ? {...d, is_public: newVal} : d));
+    await supabase.from("decks").update({ is_public: newVal }).eq("id", deck.id);
+    onUpdate();
   }
 
   const sorted = useMemo(() => {
@@ -550,10 +667,10 @@ function DecksView({ decks, uid, tags, themes, onOpen, onUpdate }) {
               <span>{LANG_FLAGS[deck.front_lang]||"?"} → {LANG_FLAGS[deck.back_lang]||"?"}</span>
             </div>
             <div className="deck-actions" onClick={e=>e.stopPropagation()}>
-              <button className="btn-sm" onClick={()=>onOpen(deck)}>Träna →</button>
-              <button className="btn-sm btn-ghost-sm" onClick={()=>{setEditing(deck);setShowEditor(true);}}>Redigera</button>
-              <button className="btn-sm btn-ghost-sm" onClick={()=>toggleShare(deck)} title={deck.is_public?"Gör privat":"Dela"}>{deck.is_public?"🔓":"🔒"}</button>
-              <button className="btn-sm btn-danger-sm" onClick={()=>deleteDeck(deck.id)}>Ta bort</button>
+              <button className="btn-sm" onClick={()=>onOpen(deck)} title="Öva den här listan">Träna →</button>
+              <button className="btn-sm btn-ghost-sm" onClick={()=>{setEditing(deck);setShowEditor(true);}} title="Redigera listans inställningar">Redigera</button>
+              <button className="btn-sm btn-ghost-sm" onClick={()=>toggleShare(deck)} title={deck.is_public?"Listan är publik – klicka för att göra privat":"Listan är privat – klicka för att dela offentligt"}>{deck.is_public?"🔓":"🔒"}</button>
+              <button className="btn-sm btn-danger-sm" onClick={()=>deleteDeck(deck.id)} title="Ta bort listan och alla kort">Ta bort</button>
             </div>
           </article>
         ))}
@@ -899,6 +1016,23 @@ function HomeView({ deck, cards, tags, themes, progress, onStudy, onUpdate }) {
   const wrong = Object.values(progress).reduce((s,p)=>s+(p.wrong||0),0);
   const accuracy = correct+wrong>0 ? Math.round(100*correct/(correct+wrong)) : null;
   const favorites = Object.values(progress).filter(p=>p.is_favorite).length;
+  const [hideFlagged, setHideFlagged] = useState(false);
+
+  // Cards answered wrong in last session (wrong > 0 and streak === 0)
+  const wrongLast = cards.filter(c => {
+    const p = progress[c.id];
+    return p && p.wrong > 0 && (p.streak === 0 || p.correct === 0);
+  });
+  const everWrong = cards.filter(c => {
+    const p = progress[c.id];
+    return p && p.wrong > 0;
+  });
+  const flaggedCards = cards.filter(c => c.is_flagged);
+  const visibleFlagged = flaggedCards.filter(c => !hideFlagged);
+
+  // Only show tags that are used in this deck's cards
+  const usedTagIds = new Set(cards.flatMap(c=>c.tag_ids||[]));
+  const usedTags = tags.filter(t=>usedTagIds.has(t.id));
 
   return (
     <div className="view">
@@ -910,55 +1044,101 @@ function HomeView({ deck, cards, tags, themes, progress, onStudy, onUpdate }) {
       </div>
 
       <div className="stats-row">
-        <StatCard label="Att repetera" value={due.length} accent={due.length>0} />
-        <StatCard label="Totalt" value={total} />
-        <StatCard label="Träffsäkerhet" value={accuracy!==null?`${accuracy}%`:"–"} />
-        <StatCard label="Favoriter" value={favorites} />
-        <StatCard label="Med ikon" value={withIcon} />
+        <Tooltip text="Antal kort som är dags att repetera idag"><StatCard label="Att repetera" value={due.length} accent={due.length>0} /></Tooltip>
+        <Tooltip text="Totalt antal kort i listan"><StatCard label="Totalt" value={total} /></Tooltip>
+        <Tooltip text="Andel rätta svar totalt"><StatCard label="Träffsäkerhet" value={accuracy!==null?`${accuracy}%`:"–"} /></Tooltip>
+        <Tooltip text="Kort du markerat som favoriter"><StatCard label="Favoriter" value={favorites} /></Tooltip>
+        <Tooltip text="Kort med bild eller emoji"><StatCard label="Med ikon" value={withIcon} /></Tooltip>
       </div>
+
+      {flaggedCards.length > 0 && (
+        <div className="flagged-banner">
+          <span>🚩 {flaggedCards.length} kort har flaggats av användare</span>
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn-sm btn-ghost-sm" onClick={()=>setHideFlagged(h=>!h)}>
+              {hideFlagged ? "Visa flaggade" : "Dölj flaggade"}
+            </button>
+            {!hideFlagged && (
+              <button className="btn-sm btn-ghost-sm" onClick={()=>onStudy({onlyFlagged:true,direction:"front"})}>
+                Granska flaggade
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="home-study-options">
         <h2 className="section-title">Träna</h2>
         <div className="study-btns-grid">
-          <button className="study-opt-card" onClick={()=>onStudy({direction:"front",onlyFlagged:false,onlyWithIcon:false})}>
-            <span className="study-opt-icon" aria-hidden="true">🃏</span>
-            <span>Hela listan</span>
-            <span className="study-opt-count">{total} kort</span>
-          </button>
-          <button className="study-opt-card" onClick={()=>onStudy({direction:"front",onlyFlagged:false,onlyWithIcon:false,onlyDue:true})}>
-            <span className="study-opt-icon" aria-hidden="true">⏰</span>
-            <span>Dags att repetera</span>
-            <span className="study-opt-count">{due.length} kort</span>
-          </button>
-          <button className="study-opt-card" onClick={()=>onStudy({direction:"back",onlyFlagged:false,onlyWithIcon:false})}>
-            <span className="study-opt-icon" aria-hidden="true">🔄</span>
-            <span>Baksidan först</span>
-            <span className="study-opt-count">{total} kort</span>
-          </button>
-          {withIcon>0 && (
-            <button className="study-opt-card" onClick={()=>onStudy({onlyWithIcon:true,direction:"front"})}>
-              <span className="study-opt-icon" aria-hidden="true">🖼️</span>
-              <span>Bara med ikon/emoji</span>
-              <span className="study-opt-count">{withIcon} kort</span>
+          <Tooltip text="Öva alla kort i slumpmässig ordning">
+            <button className="study-opt-card" onClick={()=>onStudy({direction:"front",onlyFlagged:false,onlyWithIcon:false,hideFlagged})}>
+              <span className="study-opt-icon" aria-hidden="true">🃏</span>
+              <span>Hela listan</span>
+              <span className="study-opt-count">{total} kort</span>
             </button>
+          </Tooltip>
+          <Tooltip text="Spaced repetition – dessa kort behöver repeteras idag">
+            <button className="study-opt-card" onClick={()=>onStudy({direction:"front",onlyFlagged:false,onlyWithIcon:false,onlyDue:true})}>
+              <span className="study-opt-icon" aria-hidden="true">⏰</span>
+              <span>Dags att repetera</span>
+              <span className="study-opt-count">{due.length} kort</span>
+            </button>
+          </Tooltip>
+          <Tooltip text="Se översättningen först och gissa originalordet">
+            <button className="study-opt-card" onClick={()=>onStudy({direction:"back",onlyFlagged:false,onlyWithIcon:false,hideFlagged})}>
+              <span className="study-opt-icon" aria-hidden="true">🔄</span>
+              <span>Baksidan först</span>
+              <span className="study-opt-count">{total} kort</span>
+            </button>
+          </Tooltip>
+          {wrongLast.length > 0 && (
+            <Tooltip text="Öva bara de kort du svarade fel på senast">
+              <button className="study-opt-card study-opt-warn" onClick={()=>onStudy({onlyEverWrong:true,onlyLastWrong:true,direction:"front"})}>
+                <span className="study-opt-icon" aria-hidden="true">↩️</span>
+                <span>Fel senaste gången</span>
+                <span className="study-opt-count">{wrongLast.length} kort</span>
+              </button>
+            </Tooltip>
+          )}
+          {everWrong.length > 0 && (
+            <Tooltip text="Öva alla kort du någon gång svarat fel på">
+              <button className="study-opt-card study-opt-warn" onClick={()=>onStudy({onlyEverWrong:true,direction:"front"})}>
+                <span className="study-opt-icon" aria-hidden="true">❌</span>
+                <span>Svarat fel någon gång</span>
+                <span className="study-opt-count">{everWrong.length} kort</span>
+              </button>
+            </Tooltip>
+          )}
+          {withIcon>0 && (
+            <Tooltip text="Öva bara kort som har en bild eller emoji">
+              <button className="study-opt-card" onClick={()=>onStudy({onlyWithIcon:true,direction:"front"})}>
+                <span className="study-opt-icon" aria-hidden="true">🖼️</span>
+                <span>Bara med ikon/emoji</span>
+                <span className="study-opt-count">{withIcon} kort</span>
+              </button>
+            </Tooltip>
           )}
           {favorites>0 && (
-            <button className="study-opt-card" onClick={()=>onStudy({onlyFavorites:true,direction:"front"})}>
-              <span className="study-opt-icon" aria-hidden="true">⭐</span>
-              <span>Favoriter</span>
-              <span className="study-opt-count">{favorites} kort</span>
-            </button>
+            <Tooltip text="Öva bara dina favoritmarkerade kort">
+              <button className="study-opt-card" onClick={()=>onStudy({onlyFavorites:true,direction:"front"})}>
+                <span className="study-opt-icon" aria-hidden="true">⭐</span>
+                <span>Favoriter</span>
+                <span className="study-opt-count">{favorites} kort</span>
+              </button>
+            </Tooltip>
           )}
         </div>
 
-        {tags.length>0 && (
+        {usedTags.length>0 && (
           <div className="home-tag-section">
             <h3 className="section-title">Öva per tagg</h3>
             <div className="tags-row">
-              {tags.map(tag=>(
-                <button key={tag.id} className="tag-chip-study" style={{"--tc":tag.color||"#6b9bce"}} onClick={()=>onStudy({tagId:tag.id,direction:"front"})}>
-                  {tag.name}
-                </button>
+              {usedTags.map(tag=>(
+                <Tooltip key={tag.id} text={`Öva bara kort med taggen "${tag.name}"`}>
+                  <button className="tag-chip-study" style={{"--tc":tag.color||"#6b9bce"}} onClick={()=>onStudy({tagId:tag.id,direction:"front"})}>
+                    {tag.name}
+                  </button>
+                </Tooltip>
               ))}
             </div>
           </div>
@@ -981,7 +1161,7 @@ function StatCard({ label, value, accent }) {
 // STUDY VIEW
 // ─────────────────────────────────────────────────────────────────
 function StudyView({ cards, tags, themes, progress, config, onProgressUpdate, uid, cardsShownRef }) {
-  const { tagId, themeId, direction="front", onlyFlagged, onlyWithIcon, onlyDue, onlyFavorites } = config;
+  const { tagId, themeId, direction="front", onlyFlagged, onlyWithIcon, onlyDue, onlyFavorites, onlyEverWrong, onlyLastWrong, hideFlagged } = config;
 
   const queue = useMemo(() => {
     let q = [...cards];
@@ -993,9 +1173,17 @@ function StudyView({ cards, tags, themes, progress, config, onProgressUpdate, ui
       return new Date(p.next_review)<=new Date();
     });
     if (onlyFavorites) q = q.filter(c=>progress[c.id]?.is_favorite);
+    if (onlyEverWrong) {
+      if (onlyLastWrong) {
+        q = q.filter(c=>{ const p=progress[c.id]; return p && p.wrong>0 && (p.streak===0||p.correct===0); });
+      } else {
+        q = q.filter(c=>{ const p=progress[c.id]; return p && p.wrong>0; });
+      }
+    }
+    if (hideFlagged) q = q.filter(c=>!c.is_flagged);
     // Shuffle
     return q.sort(()=>Math.random()-0.5);
-  }, [cards, tagId, themeId, onlyWithIcon, onlyDue, onlyFavorites, progress]);
+  }, [cards, tagId, themeId, onlyWithIcon, onlyDue, onlyFavorites, onlyEverWrong, onlyLastWrong, hideFlagged, progress]);
 
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -1141,11 +1329,22 @@ function CardsView({ cards, tags, themes, onUpdate, uid, deckId }) {
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
   const [filterTag, setFilterTag] = useState("");
+  const [hideFlagged, setHideFlagged] = useState(false);
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
 
-  const filtered = cards.filter(c =>
-    (c.front+c.back+(c.notes||"")).toLowerCase().includes(search.toLowerCase()) &&
-    (!filterTag || (c.tag_ids||[]).includes(filterTag))
-  );
+  // Only show tags used in this deck
+  const usedTagIds = new Set(cards.flatMap(c=>c.tag_ids||[]));
+  const usedTags = tags.filter(t=>usedTagIds.has(t.id));
+
+  const flaggedCount = cards.filter(c=>c.is_flagged).length;
+
+  const filtered = cards.filter(c => {
+    if (showFlaggedOnly && !c.is_flagged) return false;
+    if (hideFlagged && c.is_flagged) return false;
+    if (!(c.front+c.back+(c.notes||"")).toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterTag && !(c.tag_ids||[]).includes(filterTag)) return false;
+    return true;
+  });
 
   async function saveCard(data) {
     // Build safe payload with only guaranteed columns
@@ -1185,11 +1384,25 @@ function CardsView({ cards, tags, themes, onUpdate, uid, deckId }) {
       </div>
       <div className="toolbar">
         <input className="search-input" type="search" placeholder="Sök kort…" value={search} onChange={e=>setSearch(e.target.value)} aria-label="Sök kort" />
-        {tags.length>0 && (
-          <select className="select-sm" value={filterTag} onChange={e=>setFilterTag(e.target.value)} aria-label="Filtrera tagg">
+        {usedTags.length>0 && (
+          <select className="select-sm" value={filterTag} onChange={e=>setFilterTag(e.target.value)} aria-label="Filtrera tagg" title="Visa bara kort med den här taggen">
             <option value="">Alla taggar</option>
-            {tags.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+            {usedTags.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
+        )}
+        {flaggedCount > 0 && (
+          <div style={{display:"flex",gap:6}}>
+            <Tooltip text="Visa bara flaggade kort">
+              <button className={cn("btn-sm btn-ghost-sm", showFlaggedOnly&&"btn-active")} onClick={()=>{setShowFlaggedOnly(s=>!s);setHideFlagged(false);}}>
+                🚩 {flaggedCount} flaggade
+              </button>
+            </Tooltip>
+            <Tooltip text={hideFlagged?"Visa flaggade kort":"Dölj flaggade kort"}>
+              <button className={cn("btn-sm btn-ghost-sm", hideFlagged&&"btn-active")} onClick={()=>{setHideFlagged(h=>!h);setShowFlaggedOnly(false);}}>
+                {hideFlagged?"Visa dolda":"Dölj flaggade"}
+              </button>
+            </Tooltip>
+          </div>
         )}
       </div>
 
@@ -1347,54 +1560,164 @@ function CardEditor({ card, tags, themes, deckId, onSave, onCancel }) {
   );
 }
 
-function ImportView({ deck, uid, onUpdate }) {
+function ImportView({ deck, uid, onUpdate, themes=[], tags=[] }) {
+  const [step, setStep] = useState("upload"); // upload | metadata | done
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState([]);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [parsedRows, setParsedRows] = useState([]);
+  // Metadata
+  const [subjects, setSubjects] = useState([]); // e.g. ["Engelska", "Franska"]
+  const [courses, setCourses] = useState([]); // e.g. ["Psykologi A"]
+  const [selThemeIds, setSelThemeIds] = useState([]);
+
+  // Common suggestions
+  const SUBJECT_SUGGESTIONS = ["Svenska","Engelska","Franska","Tyska","Spanska","Historia","Matematik","Biologi","Fysik","Kemi","Geografi","Religion","Samhällskunskap","Psykologi","Filosofi","Musik","Idrott","Konst"];
+  const COURSE_SUGGESTIONS = ["Engelska 5","Engelska 6","Engelska 7","Svenska 1","Svenska 2","Svenska 3","Historia A","Historia B","Psykologi A","Psykologi B","Biologi 1","Biologi 2","Matematik 1a","Matematik 1b","Matematik 2","Matematik 3","Matematik 4","Matematik 5"];
 
   function parseCSV(text) {
     return text.trim().split("\n")
       .filter(line => line.trim())
       .map(line => {
         const parts = line.split(",").map(p => p.trim().replace(/^["']|["']$/g, ""));
-        return { front: parts[0]||"", back: parts[1]||"", notes: parts[2]||"", emoji: parts[3]||"" };
+        return { front: parts[0]||"", back: parts[1]||"", notes: parts[2]||"", emoji: parts[3]||"", difficulty: parts[4] ? parseInt(parts[4])||2 : 2 };
       }).filter(r => r.front && r.back);
   }
 
   useEffect(() => { if (csv) setPreview(parseCSV(csv).slice(0, 5)); else setPreview([]); }, [csv]);
 
+  function handleNext() {
+    const rows = parseCSV(csv);
+    if (!rows.length) { setStatus("Inga giltiga rader hittades."); return; }
+    setParsedRows(rows);
+    setStatus("");
+    setStep("metadata");
+  }
+
   async function doImport() {
     setBusy(true); setStatus("");
-    const rows = parseCSV(csv);
-    if (!rows.length) { setStatus("Inga giltiga rader hittades."); setBusy(false); return; }
+    if (!parsedRows.length) { setStatus("Inga giltiga rader."); setBusy(false); return; }
 
-    // Try inserting with emoji field first, fall back to without if column missing
-    const withEmoji = rows.map(r => ({
+    // Build notes suffix from metadata
+    const metaNote = [...subjects.map(s=>`Ämne: ${s}`), ...courses.map(c=>`Kurs: ${c}`)].join(" | ");
+
+    const withEmoji = parsedRows.map(r => ({
       user_id: uid, deck_id: deck.id,
-      front: r.front, back: r.back, notes: r.notes || null,
+      front: r.front, back: r.back,
+      notes: r.notes || null,
       front_emoji: r.emoji || "",
+      difficulty: r.difficulty || 2,
+      theme_ids: selThemeIds,
     }));
 
     let { error } = await supabase.from("cards").insert(withEmoji);
-
-    // If front_emoji column doesn't exist yet, retry without it
     if (error && error.message.includes("front_emoji")) {
-      const withoutEmoji = rows.map(r => ({
+      const withoutEmoji = parsedRows.map(r => ({
         user_id: uid, deck_id: deck.id,
         front: r.front, back: r.back, notes: r.notes || null,
+        theme_ids: selThemeIds,
       }));
       const res2 = await supabase.from("cards").insert(withoutEmoji);
       error = res2.error;
     }
 
-    if (error) { setStatus("Fel: " + error.message); }
-    else {
-      await logEvent(uid, "data_imported", { deck_id: deck.id, count: rows.length });
-      setStatus(`✓ ${rows.length} kort importerade!`); setCsv(""); onUpdate();
+    if (error) { setStatus("Fel: " + error.message); setBusy(false); return; }
+
+    // Update deck with subjects/courses in description if not already set
+    if (subjects.length || courses.length) {
+      const extraDesc = [...subjects, ...courses].join(", ");
+      await supabase.from("decks").update({
+        description: deck.description ? `${deck.description} · ${extraDesc}` : extraDesc
+      }).eq("id", deck.id);
     }
+
+    await logEvent(uid, "data_imported", { deck_id: deck.id, count: parsedRows.length, subjects, courses });
+    setStatus(`✓ ${parsedRows.length} kort importerade!`);
+    setStep("done");
+    onUpdate();
     setBusy(false);
   }
+
+  if (step === "done") return (
+    <div className="view center-msg">
+      <div className="done-card">
+        <div className="done-emoji">✅</div>
+        <h2>Import klar!</h2>
+        <p>{parsedRows.length} kort importerade till <strong>{deck.theme_icon} {deck.name}</strong></p>
+        {subjects.length > 0 && <p className="muted">Ämnen: {subjects.join(", ")}</p>}
+        {courses.length > 0 && <p className="muted">Kurser: {courses.join(", ")}</p>}
+        <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:16}}>
+          <button className="btn-primary" onClick={()=>{setStep("upload");setCsv("");setParsedRows([]);setSubjects([]);setCourses([]);setSelThemeIds([]);}}>Importera mer</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (step === "metadata") return (
+    <div className="view">
+      <div className="view-header">
+        <div>
+          <h1 className="view-title">Beskriv dina ord</h1>
+          <p className="view-sub">Lägg till ämnen, teman och kurser för att göra orden sökbara.</p>
+        </div>
+      </div>
+      <div className="import-box">
+        <div className="flow-steps" style={{marginBottom:20}}>
+          <span className="flow-step done">1. CSV-fil ✓</span>
+          <span className="flow-step-arrow">→</span>
+          <span className="flow-step active">2. Beskriv orden</span>
+          <span className="flow-step-arrow">→</span>
+          <span className="flow-step">3. Importera</span>
+        </div>
+        <p className="muted" style={{marginBottom:20}}>Redo att importera <strong>{parsedRows.length} ord</strong>. Beskriv dem så att de blir lättare att hitta och filtrera.</p>
+
+        <div className="form-field">
+          <label className="form-label">
+            Ämnen (skolämnen, t.ex. Engelska, Historia)
+            <Tooltip text="Ange vilket eller vilka skolämnen orden tillhör"><span className="help-icon">?</span></Tooltip>
+          </label>
+          <p className="import-format" style={{marginBottom:6}}>Tryck Enter eller komma för att lägga till ett ämne</p>
+          <TagInput tags={subjects} onChange={setSubjects} allTags={SUBJECT_SUGGESTIONS} placeholder="t.ex. Engelska, Historia…" />
+        </div>
+
+        <div className="form-field">
+          <label className="form-label">
+            Kurser (t.ex. Psykologi A, Engelska 5)
+            <Tooltip text="Ange specifika kurser orden är kopplade till"><span className="help-icon">?</span></Tooltip>
+          </label>
+          <p className="import-format" style={{marginBottom:6}}>Tryck Enter eller komma för att lägga till en kurs</p>
+          <TagInput tags={courses} onChange={setCourses} allTags={COURSE_SUGGESTIONS} placeholder="t.ex. Psykologi A, Engelska 5…" />
+        </div>
+
+        {themes.length > 0 && (
+          <div className="form-field">
+            <label className="form-label">
+              Teman (grammatik, oregelbundna verb m.m.)
+              <Tooltip text="Teman hjälper dig att öva alla ord med samma tema, även från olika listor"><span className="help-icon">?</span></Tooltip>
+            </label>
+            <div className="tag-picker">
+              {themes.map(t=>(
+                <button key={t.id} type="button"
+                  className={cn("tag-chip", selThemeIds.includes(t.id)&&"active")}
+                  onClick={()=>setSelThemeIds(p=>p.includes(t.id)?p.filter(x=>x!==t.id):[...p,t.id])}
+                  aria-pressed={selThemeIds.includes(t.id)}
+                >{t.icon} {t.name}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="editor-actions">
+          <button className="btn-primary" onClick={doImport} disabled={busy} aria-busy={busy}>
+            {busy ? "Importerar…" : `Importera ${parsedRows.length} ord →`}
+          </button>
+          <button className="btn-ghost" onClick={()=>setStep("upload")}>← Tillbaka</button>
+        </div>
+        {status && <div className={cn("import-status", status.startsWith("✓")?"import-ok":"import-err")} role="status">{status}</div>}
+      </div>
+    </div>
+  );
 
   return (
     <div className="view">
@@ -1402,8 +1725,28 @@ function ImportView({ deck, uid, onUpdate }) {
         <h1 className="view-title">Importera kort</h1>
       </div>
       <div className="import-box">
-        <p className="import-format">Format per rad: <code>ord1, ord2, kommentar, emoji</code></p>
-        <p className="import-format">Exempel: <code>hund, dog, En fyrbent vän, 🐶</code></p>
+        <div className="import-format-box">
+          <h3>CSV-format</h3>
+          <p>En rad per ord med kommatecken mellan fälten:</p>
+          <code>framsida, baksida, kommentar, emoji, svårighet(1-5)</code>
+          <table className="cards-table" style={{marginTop:12,fontSize:13}}>
+            <thead><tr><th>Kolumn</th><th>Beskrivning</th><th>Exempel</th><th>Obligatorisk</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>Framsida (ord/begrepp)</td><td>hund</td><td>✓</td></tr>
+              <tr><td>2</td><td>Baksida (översättning)</td><td>dog</td><td>✓</td></tr>
+              <tr><td>3</td><td>Kommentar/förklaring</td><td>En fyrbent vän</td><td>–</td></tr>
+              <tr><td>4</td><td>Emoji</td><td>🐶</td><td>–</td></tr>
+              <tr><td>5</td><td>Svårighet (1–5)</td><td>2</td><td>–</td></tr>
+            </tbody>
+          </table>
+          <p style={{marginTop:8}} className="muted">Exempelrader:</p>
+          <pre style={{background:"var(--bg2)",padding:"8px",borderRadius:"6px",fontSize:12,overflowX:"auto"}}>
+{`hund, dog, En fyrbent vän, 🐶, 1
+katt, cat,,🐱
+oregelbunden, irregular, Oregelbundet verb, , 3
+vara, to be, Hjälpverb, , 4`}
+          </pre>
+        </div>
         <textarea
           className="form-input form-textarea import-textarea"
           value={csv}
@@ -1416,14 +1759,14 @@ function ImportView({ deck, uid, onUpdate }) {
           <div className="import-preview">
             <strong>Förhandsgranskning ({preview.length} av {parseCSV(csv).length} rader):</strong>
             <table className="cards-table">
-              <thead><tr><th>Framsida</th><th>Baksida</th><th>Kommentar</th><th>Emoji</th></tr></thead>
-              <tbody>{preview.map((r, i) => <tr key={i}><td>{r.front}</td><td>{r.back}</td><td>{r.notes}</td><td>{r.emoji}</td></tr>)}</tbody>
+              <thead><tr><th>Framsida</th><th>Baksida</th><th>Kommentar</th><th>Emoji</th><th>Svårighet</th></tr></thead>
+              <tbody>{preview.map((r, i) => <tr key={i}><td>{r.front}</td><td>{r.back}</td><td>{r.notes}</td><td>{r.emoji}</td><td>{r.difficulty}</td></tr>)}</tbody>
             </table>
           </div>
         )}
         {status && <div className={cn("import-status", status.startsWith("✓") ? "import-ok" : "import-err")} role="status">{status}</div>}
-        <button className="btn-primary" onClick={doImport} disabled={!csv.trim() || busy} aria-busy={busy}>
-          {busy ? "Importerar…" : "Importera"}
+        <button className="btn-primary" onClick={handleNext} disabled={!csv.trim()}>
+          Nästa: Beskriv orden →
         </button>
       </div>
     </div>
@@ -1433,28 +1776,40 @@ function ImportView({ deck, uid, onUpdate }) {
 // ─────────────────────────────────────────────────────────────────
 // EXPLORE VIEW (publika listor)
 // ─────────────────────────────────────────────────────────────────
-function ExploreView({ uid, tags, themes, onImport }) {
+function ExploreView({ uid, tags, themes, onImport, copiedDeckIds=[] }) {
   const [decks, setDecks] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sort, setSort] = useState("use_count");
+  const [cardCounts, setCardCounts] = useState({});
+  const [filterTheme, setFilterTheme] = useState("");
+  const [copiedIds, setCopiedIds] = useState(copiedDeckIds);
 
   useEffect(()=>{
     (async()=>{
       setLoading(true);
       const { data } = await supabase.from("decks").select("*").eq("is_public",true).eq("is_active",true).order("use_count",{ascending:false});
-      setDecks(data||[]); setLoading(false);
+      setDecks(data||[]);
+      // Load card counts
+      const ids = (data||[]).map(d=>d.id);
+      if (ids.length) {
+        const { data: cc } = await supabase.from("cards").select("deck_id").in("deck_id",ids);
+        const c={}; (cc||[]).forEach(r=>{c[r.deck_id]=(c[r.deck_id]||0)+1;}); setCardCounts(c);
+      }
+      setLoading(false);
     })();
   },[]);
 
+  useEffect(()=>{ setCopiedIds(copiedDeckIds); },[copiedDeckIds]);
+
   async function copyDeck(srcDeck) {
-    // Copy deck
+    if (copiedIds.includes(srcDeck.id)) { alert("Du har redan kopierat den här listan!"); return; }
     const { data: nd } = await supabase.from("decks").insert({
       user_id:uid, name:`${srcDeck.name} (kopia)`, description:srcDeck.description,
       pair_type:srcDeck.pair_type, front_lang:srcDeck.front_lang, back_lang:srcDeck.back_lang,
       color:srcDeck.color, theme_icon:srcDeck.theme_icon,
     }).select().single();
     if (!nd) return;
-    // Copy cards
     const { data: srcCards } = await supabase.from("cards").select("*").eq("deck_id",srcDeck.id);
     if (srcCards?.length) {
       await supabase.from("cards").insert(srcCards.map(c=>({
@@ -1463,40 +1818,78 @@ function ExploreView({ uid, tags, themes, onImport }) {
         tag_ids:c.tag_ids, theme_ids:c.theme_ids,
       })));
     }
-    // Increment use_count
     await supabase.from("decks").update({use_count:(srcDeck.use_count||0)+1}).eq("id",srcDeck.id);
     await logEvent(uid,"data_imported",{from_deck:srcDeck.id,name:srcDeck.name});
-    onImport(); alert("Ordlistan kopierades till dina listor!");
+    setCopiedIds(prev=>[...prev, srcDeck.id]);
+    setDecks(prev=>prev.map(d=>d.id===srcDeck.id?{...d,use_count:(d.use_count||0)+1}:d));
+    onImport();
+    alert("Ordlistan kopierades till dina listor!");
   }
 
-  const filtered = decks.filter(d=>d.name.toLowerCase().includes(search.toLowerCase()));
+  const sorted = useMemo(()=>{
+    let d = decks.filter(deck=>
+      deck.name.toLowerCase().includes(search.toLowerCase()) &&
+      (!filterTheme || (deck.theme_ids||[]).includes(filterTheme))
+    );
+    if (sort==="use_count") d.sort((a,b)=>(b.use_count||0)-(a.use_count||0));
+    else if (sort==="card_count") d.sort((a,b)=>(cardCounts[b.id]||0)-(cardCounts[a.id]||0));
+    else if (sort==="new") d.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+    else if (sort==="wrong") d.sort((a,b)=>a.name.localeCompare(b.name));
+    return d;
+  },[decks, search, sort, filterTheme, cardCounts]);
 
   return (
     <div className="view">
       <div className="view-header">
-        <h1 className="view-title">Utforska publika listor</h1>
+        <div>
+          <h1 className="view-title">Utforska publika listor</h1>
+          <p className="view-sub">Hitta och kopiera ordlistor från gemenskapen.</p>
+        </div>
       </div>
       <div className="toolbar">
         <input className="search-input" type="search" placeholder="Sök lista…" value={search} onChange={e=>setSearch(e.target.value)} aria-label="Sök publika listor" />
+        <select className="select-sm" value={sort} onChange={e=>setSort(e.target.value)} aria-label="Sortera" title="Sortera listor">
+          <option value="use_count">Mest kopierade</option>
+          <option value="card_count">Flest kort</option>
+          <option value="new">Nyaste</option>
+          <option value="name">Namn A–Ö</option>
+        </select>
+        {themes.length>0 && (
+          <select className="select-sm" value={filterTheme} onChange={e=>setFilterTheme(e.target.value)} aria-label="Filtrera tema">
+            <option value="">Alla teman</option>
+            {themes.map(t=><option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}
+          </select>
+        )}
       </div>
       {loading && <p className="muted">Laddar…</p>}
       <div className="decks-grid">
-        {filtered.map(deck=>(
-          <article key={deck.id} className="deck-card" style={{"--dc":deck.color||"#c84b2f"}}>
-            <div className="deck-card-top">
-              <span className="deck-icon" aria-hidden="true">{deck.theme_icon||"📚"}</span>
-              <span className="badge badge-green">Publik</span>
-            </div>
-            <h2 className="deck-name">{deck.name}</h2>
-            {deck.description && <p className="deck-desc">{deck.description}</p>}
-            <div className="deck-meta">
-              <span>{LANG_FLAGS[deck.front_lang]||"?"} → {LANG_FLAGS[deck.back_lang]||"?"}</span>
-              <span>Använd {deck.use_count||0}×</span>
-            </div>
-            <button className="btn-sm" onClick={()=>copyDeck(deck)}>Kopiera till mina listor</button>
-          </article>
-        ))}
-        {!loading && filtered.length===0 && <p className="muted center-msg">Inga publika listor hittades.</p>}
+        {sorted.map(deck=>{
+          const alreadyCopied = copiedIds.includes(deck.id);
+          return (
+            <article key={deck.id} className={cn("deck-card", alreadyCopied&&"deck-card-copied")} style={{"--dc":deck.color||"#c84b2f"}}>
+              <div className="deck-card-top">
+                <span className="deck-icon" aria-hidden="true">{deck.theme_icon||"📚"}</span>
+                <div className="deck-badges">
+                  <span className="badge badge-green">Publik</span>
+                  {alreadyCopied && <span className="badge badge-blue" title="Du har redan kopierat den här listan">✓ Kopierad</span>}
+                </div>
+              </div>
+              <h2 className="deck-name">{deck.name}</h2>
+              {deck.description && <p className="deck-desc">{deck.description}</p>}
+              <div className="deck-meta">
+                <span>{LANG_FLAGS[deck.front_lang]||"?"} → {LANG_FLAGS[deck.back_lang]||"?"}</span>
+                <span>{cardCounts[deck.id]||0} kort</span>
+                <span>Kopierad {deck.use_count||0}×</span>
+              </div>
+              <Tooltip text={alreadyCopied ? "Du har redan den här listan" : "Kopiera till dina egna listor"}>
+                <button className={cn("btn-sm", alreadyCopied&&"btn-ghost-sm")} onClick={()=>copyDeck(deck)} disabled={alreadyCopied}>
+                  {alreadyCopied ? "✓ Redan kopierad" : "Kopiera till mina listor"}
+                </button>
+              </Tooltip>
+            </article>
+          );
+        })}
+        {!loading && sorted.length===0 && <p className="muted center-msg">Inga publika listor hittades.</p>}
       </div>
     </div>
   );
@@ -1705,8 +2098,190 @@ function ProfileView({ profile, uid, onUpdate }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// ADMIN VIEW
+// HELP VIEW
 // ─────────────────────────────────────────────────────────────────
+function HelpView({ isAdmin, onClose }) {
+  const [tab, setTab] = useState("user");
+  const tabs = [
+    { id:"user", label:"👤 Användarguide" },
+    { id:"study", label:"🃏 Träna smart" },
+    { id:"import", label:"📥 Importera" },
+    ...(isAdmin ? [{ id:"admin", label:"⚙️ Adminhandbok" }] : []),
+    { id:"faq", label:"❓ Vanliga frågor" },
+  ];
+
+  return (
+    <div className="view">
+      <div className="view-header">
+        <div>
+          <h1 className="view-title">❓ Hjälp & Guide</h1>
+          <p className="view-sub">Lär dig använda Glosträning på bästa sätt.</p>
+        </div>
+      </div>
+      <div className="admin-tabs" role="tablist">
+        {tabs.map(t=><button key={t.id} role="tab" aria-selected={tab===t.id} className={cn("admin-tab",tab===t.id&&"active")} onClick={()=>setTab(t.id)}>{t.label}</button>)}
+      </div>
+      <div className="docs-section" style={{maxWidth:800}}>
+        {tab==="user" && <HelpUser />}
+        {tab==="study" && <HelpStudy />}
+        {tab==="import" && <HelpImport />}
+        {tab==="admin" && <HelpAdmin />}
+        {tab==="faq" && <HelpFAQ />}
+      </div>
+    </div>
+  );
+}
+
+function HelpUser() {
+  return (
+    <div>
+      <h2>Kom igång som användare</h2>
+      <h3>1. Skapa din första ordlista</h3>
+      <p>Klicka på <strong>+ Ny ordlista</strong> i Ordlistor-vyn. Ge listan ett namn och välj vilket språk som ska vara framsida respektive baksida. Om du väljer samma språk på båda sidor skapar du en <em>begreppslista</em> – perfekt för att lära sig definitioner.</p>
+      <h3>2. Lägg till ord</h3>
+      <p>Ord kan läggas till på tre sätt: manuellt ett och ett via <strong>+ Nytt kort</strong>, via CSV-import (se fliken Importera), eller via <strong>Utforska</strong> där du kan kopiera andras publika listor.</p>
+      <h3>3. Tagga dina kort</h3>
+      <p>Taggar hjälper dig filtrera och öva specifika grupper av ord. Globala taggar som <em>Lätt, Medel, Svårt</em> och <em>Verb, Substantiv</em> finns inbyggda. Du kan också skapa egna taggar i din profil.</p>
+      <h3>4. Teman</h3>
+      <p>Teman (t.ex. Djur, Mat, IT) låter dig öva ord <em>tvärs över listor</em>. Gå till <strong>Öva tema</strong> för att träna alla dina kort med ett visst tema på en gång.</p>
+      <h3>5. Dela din lista</h3>
+      <p>Klicka på hänglåset 🔒 på en lista för att göra den publik. Andra användare kan då hitta och kopiera den via <strong>Utforska</strong>. Klicka 🔓 igen för att göra den privat.</p>
+      <h3>Best practices</h3>
+      <ul>
+        <li>Håll listor fokuserade – 20–50 ord per lista är lagom</li>
+        <li>Lägg till emojis och bilder för bättre memorering</li>
+        <li>Träna regelbundet – hellre 10 minuter varje dag än 1 timme en gång i veckan</li>
+        <li>Använd <em>Dags att repetera</em> för effektivt lärande via spaced repetition</li>
+        <li>Markera svåra ord som favoriter ⭐ och öva dem extra</li>
+        <li>Flagga 🚩 felaktiga kort så kan administratören rätta dem</li>
+      </ul>
+    </div>
+  );
+}
+
+function HelpStudy() {
+  return (
+    <div>
+      <h2>Träna smart med spaced repetition</h2>
+      <p>Glosträning använder <strong>spaced repetition</strong> – en vetenskapligt beprövad metod där ord du kan bra visas mer sällan, och ord du har svårt för visas oftare.</p>
+      <h3>Träningslägen</h3>
+      <ul>
+        <li><strong>Hela listan</strong> – Alla kort i slumpmässig ordning. Bra för att lära sig nya ord.</li>
+        <li><strong>Dags att repetera</strong> – Bara de kort som är schemalagda för repetition idag. Mest effektivt för inlärning!</li>
+        <li><strong>Baksidan först</strong> – Träna "baklänges" – se översättningen och gissa originalordet.</li>
+        <li><strong>Fel senaste gången</strong> – Öva enbart ord du svarade fel på nyligen.</li>
+        <li><strong>Svarat fel någon gång</strong> – Alla ord du någonsin haft svårt med.</li>
+        <li><strong>Favoriter ⭐</strong> – Bara dina favoritmarkerade ord.</li>
+        <li><strong>Per tagg</strong> – Öva bara ord med en specifik tagg, t.ex. "Verb".</li>
+      </ul>
+      <h3>Under träningen</h3>
+      <ul>
+        <li>Klicka på kortet (eller tryck Space/Enter) för att vända det</li>
+        <li>Klicka <strong>✓ Rätt</strong> om du visste svaret, <strong>✗ Fel</strong> annars</li>
+        <li>Var ärlig mot dig själv – det ger bättre inlärning</li>
+        <li>⭐ Favoritmarkera ord du vill öva extra</li>
+        <li>🚩 Flagga kort som verkar ha fel information</li>
+        <li>⟩ Hoppa över om du vill komma tillbaka till ordet senare</li>
+      </ul>
+      <h3>Förstå dina statistik</h3>
+      <p>Träffsäkerhet över 80% är bra. Om ett ämne ligger under 60% – öva mer! Streak visar hur många gånger i rad du svarat rätt på ett ord.</p>
+    </div>
+  );
+}
+
+function HelpImport() {
+  return (
+    <div>
+      <h2>Importera ord via CSV</h2>
+      <p>CSV-import är det snabbaste sättet att lägga till många ord på en gång. Du kan exportera från Excel, Google Sheets eller skriva direkt i textfältet.</p>
+      <h3>Format</h3>
+      <p>En rad per ord, fälten separerade med kommatecken:</p>
+      <pre style={{background:"var(--bg2)",padding:12,borderRadius:8,fontSize:13}}>{`framsida, baksida, kommentar, emoji, svårighet
+hund, dog, En fyrbent vän, 🐶, 1
+katt, cat, , 🐱, 2
+oregelbunden, irregular, Oregelbundet verb, , 3`}</pre>
+      <h3>Kolumner</h3>
+      <ul>
+        <li><strong>Kolumn 1 (obligatorisk)</strong>: Framsida – ordet du vill lära dig</li>
+        <li><strong>Kolumn 2 (obligatorisk)</strong>: Baksida – översättning eller definition</li>
+        <li><strong>Kolumn 3 (valfri)</strong>: Kommentar, förklaring eller exempel</li>
+        <li><strong>Kolumn 4 (valfri)</strong>: Emoji som visas på kortet</li>
+        <li><strong>Kolumn 5 (valfri)</strong>: Svårighet 1–5 (standard är 2)</li>
+      </ul>
+      <h3>Tips för import</h3>
+      <ul>
+        <li>Tomma fält lämnas tomma: <code>katt, cat,,🐱</code></li>
+        <li>Citat-tecken runt fält som innehåller kommatecken: <code>"to be, or not to be", att vara</code></li>
+        <li>Efter CSV-uppladdning kan du lägga till <em>ämnen</em>, <em>kurser</em> och <em>teman</em> för att göra orden sökbara</li>
+        <li>Förhandsgranskningen visar de 5 första raderna</li>
+      </ul>
+      <h3>Exportera från Excel/Google Sheets</h3>
+      <p>Lägg orden i kolumn A och B (och eventuellt C–E). Spara som CSV (Arkiv → Ladda ner som → CSV) och klistra in innehållet.</p>
+    </div>
+  );
+}
+
+function HelpAdmin() {
+  return (
+    <div>
+      <h2>Administratörshandbok</h2>
+      <p>Som systemadministratör (sysadmin) har du tillgång till administrationspanelen via ⚙️ Admin i navigeringen.</p>
+      <h3>Flikarna i admin</h3>
+      <ul>
+        <li><strong>📊 Statistik</strong>: Översikt av hela systemet – antal listor, kort, användare. Visar mest flaggade kort.</li>
+        <li><strong>📚 Listor</strong>: Se och hantera alla användares listor. Aktivera/inaktivera, publicera/avpublicera, ta bort. Klicka på en lista för att se och redigera dess kort.</li>
+        <li><strong>🃏 Kort</strong>: Sök och filtrera alla kort. Filtrera på flaggade, utan ikon, utan taggar, per tagg, lista eller tema. Massredigera taggar och teman på flera kort simultaneously.</li>
+        <li><strong>👥 Användare</strong>: Se alla användare. Ändra roller (Användare/Gruppansvarig/Systemadmin) och plan (Gratis/Betald). Anonymisera GDPR-raderade konton.</li>
+        <li><strong>🏷️ Taggar</strong>: Skapa och hantera globala taggar som alla användare ser. Aktivera/inaktivera taggar.</li>
+        <li><strong>🎨 Teman</strong>: Skapa och hantera teman (t.ex. Djur, Mat). Teman används för att öva tvärs över listor.</li>
+        <li><strong>📋 Logg</strong>: Händelselogg för alla systemhändelser – nya konton, importer, sessioner, flaggade kort, borttagna konton.</li>
+        <li><strong>📥 Import</strong>: Importera CSV direkt som admin och skapa en ny lista.</li>
+        <li><strong>📖 Dokumentation</strong>: Teknisk dokumentation för utvecklare.</li>
+      </ul>
+      <h3>Best practices för administration</h3>
+      <ul>
+        <li>Granska flaggade kort regelbundet (filtrera på "Flaggade" i Kort-fliken)</li>
+        <li>Håll globala taggar enkla och väldefinierade – för många taggar förvirrar användare</li>
+        <li>Teman bör spegla bredare kategorier som lämpar sig för tematisk övning</li>
+        <li>Anonymisera – ta inte bort – GDPR-begäranden för att behålla statistikens integritet</li>
+        <li>Använd massfunktioner (Bulk) för att effektivt tagga importerade kort</li>
+        <li>Kontrollera loggen vid misstänkt aktivitet</li>
+      </ul>
+      <h3>Roller</h3>
+      <ul>
+        <li><strong>user</strong>: Standardanvändare. Kan hantera sina egna listor och kort.</li>
+        <li><strong>group_manager</strong>: Kan se och hantera alla listor och kort (ej användare).</li>
+        <li><strong>sysadmin</strong>: Full åtkomst inklusive användarpanel och systemlogg.</li>
+      </ul>
+    </div>
+  );
+}
+
+function HelpFAQ() {
+  const faqs = [
+    { q: "Varför visas inte alla mina ord i träningsläget?", a: "Om du valt 'Dags att repetera' visas bara ord vars nästa repetitionsdatum passerats. Välj 'Hela listan' för att se alla." },
+    { q: "Hur fungerar spaced repetition?", a: "Varje gång du svarar rätt på ett ord schemaläggs det längre fram i tid. Svåra ord (många fel) visas dagligen, medan lätta ord kan vänta i veckor. Detta kallas spaced repetition och är vetenskapligt bevisat effektivt." },
+    { q: "Vad händer när jag flaggar ett kort?", a: "Flaggningen informerar administratören om att kortet kan innehålla fel. Kortet förblir synligt för dig men markeras med 🚩. Administratören kan sedan rätta eller ta bort kortet." },
+    { q: "Kan jag dölja flaggade kort?", a: "Ja! I kortlistan (Kort-fliken) och i hemvyn för en lista finns knappar för att dölja eller visa bara flaggade kort." },
+    { q: "Hur delar jag en lista?", a: "Klicka på hänglåset 🔒 på listan i Ordlistor-vyn. Det byter till 🔓 och listan visas i Utforska för alla användare." },
+    { q: "Kan jag kopiera en lista mer än en gång?", a: "Nej, varje publik lista kan bara kopieras en gång per användare för att undvika dubbletter." },
+    { q: "Vad är skillnaden på ämnen, teman och taggar?", a: "Taggar används för att kategorisera enskilda kort (t.ex. Verb, Svårt). Teman (t.ex. Djur, Mat) kategoriserar ord och låter dig öva tvärs över listor. Ämnen (t.ex. Engelska) och kurser är metadata för listor som hjälper organisering." },
+    { q: "Hur raderar jag mina personuppgifter?", a: "Gå till Profil → Radera mina personuppgifter. Ditt användarnamn anonymiseras och kontot inaktiveras. Din träningsstatistik behålls anonymt för systemförbättringar." },
+  ];
+  return (
+    <div>
+      <h2>Vanliga frågor</h2>
+      {faqs.map((f,i)=>(
+        <div key={i} className="faq-item">
+          <h3>{f.q}</h3>
+          <p>{f.a}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
 function AdminView({ uid, themes, tags, onUpdate }) {
   const [tab, setTab] = useState("stats");
   const tabs = [
@@ -1719,6 +2294,7 @@ function AdminView({ uid, themes, tags, onUpdate }) {
     { id:"log", label:"📋 Logg" },
     { id:"import", label:"📥 Import" },
     { id:"docs", label:"📖 Dokumentation" },
+    { id:"help", label:"❓ Admin-hjälp" },
   ];
 
   return (
@@ -1740,6 +2316,7 @@ function AdminView({ uid, themes, tags, onUpdate }) {
         {tab==="log" && <AdminLog />}
         {tab==="import" && <AdminImport uid={uid} tags={tags} themes={themes} onUpdate={onUpdate} />}
         {tab==="docs" && <DevDocs />}
+        {tab==="help" && <HelpAdmin />}
       </div>
     </div>
   );
@@ -1748,19 +2325,30 @@ function AdminView({ uid, themes, tags, onUpdate }) {
 // ── Admin: Stats ──────────────────────────────────────────────────
 function AdminStats() {
   const [stats, setStats] = useState(null);
+  const [topDecks, setTopDecks] = useState([]);
+  const [topTags, setTopTags] = useState([]);
 
   useEffect(()=>{
     (async()=>{
       const [
-        {count:decks},{count:cards},{count:users},{count:views},{data:wrong}
+        {count:decks},{count:cards},{count:users},{count:views},{data:wrong},{data:mostCopied},{data:allTags},{data:allCards}
       ] = await Promise.all([
         supabase.from("decks").select("*",{count:"exact",head:true}),
         supabase.from("cards").select("*",{count:"exact",head:true}),
         supabase.from("profiles").select("*",{count:"exact",head:true}),
         supabase.from("progress").select("correct",{count:"exact",head:true}),
         supabase.from("cards").select("front,back,flag_count,view_count").order("flag_count",{ascending:false}).limit(10),
+        supabase.from("decks").select("id,name,theme_icon,use_count,user_id").order("use_count",{ascending:false}).limit(10),
+        supabase.from("tags").select("id,name,color"),
+        supabase.from("cards").select("tag_ids"),
       ]);
       setStats({ decks,cards,users,views,wrong:wrong||[] });
+      setTopDecks(mostCopied||[]);
+      // Count tag usage
+      const tagCount = {};
+      (allCards||[]).forEach(c=>(c.tag_ids||[]).forEach(tid=>{tagCount[tid]=(tagCount[tid]||0)+1;}));
+      const tagsSorted = (allTags||[]).map(t=>({...t,count:tagCount[t.id]||0})).filter(t=>t.count>0).sort((a,b)=>b.count-a.count).slice(0,10);
+      setTopTags(tagsSorted);
     })();
   },[]);
 
@@ -1773,11 +2361,29 @@ function AdminStats() {
         <StatCard label="Användare" value={stats.users||0} />
         <StatCard label="Kortvisningar" value={stats.views||0} />
       </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginTop:8}}>
+        {topDecks.filter(d=>(d.use_count||0)>0).length > 0 && (
+          <div className="stats-section">
+            <h3 className="section-title">🏆 Mest kopierade listor</h3>
+            <table className="cards-table"><thead><tr><th>Lista</th><th>Kopierad</th></tr></thead>
+              <tbody>{topDecks.filter(d=>(d.use_count||0)>0).map((d,i)=><tr key={i}><td>{d.theme_icon||"📚"} {d.name}</td><td>{d.use_count}×</td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+        {topTags.length > 0 && (
+          <div className="stats-section">
+            <h3 className="section-title">🏷️ Mest använda taggar</h3>
+            <table className="cards-table"><thead><tr><th>Tagg</th><th>Antal kort</th></tr></thead>
+              <tbody>{topTags.map((t,i)=><tr key={i}><td><span style={{display:"inline-block",width:10,height:10,borderRadius:"50%",background:t.color,marginRight:6}} />{t.name}</td><td>{t.count}</td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
       {stats.wrong.filter(c=>c.flag_count>0).length>0 && (
-        <div className="stats-section">
-          <h3 className="section-title">Mest flaggade kort</h3>
-          <table className="cards-table"><thead><tr><th>Framsida</th><th>Baksida</th><th>Flaggningar</th></tr></thead>
-            <tbody>{stats.wrong.filter(c=>c.flag_count>0).map((c,i)=><tr key={i}><td>{c.front}</td><td>{c.back}</td><td>{c.flag_count}</td></tr>)}</tbody>
+        <div className="stats-section" style={{marginTop:8}}>
+          <h3 className="section-title">🚩 Mest flaggade kort</h3>
+          <table className="cards-table"><thead><tr><th>Framsida</th><th>Baksida</th><th>Flaggningar</th><th>Visningar</th></tr></thead>
+            <tbody>{stats.wrong.filter(c=>c.flag_count>0).map((c,i)=><tr key={i}><td>{c.front}</td><td>{c.back}</td><td>{c.flag_count}</td><td>{c.view_count||0}</td></tr>)}</tbody>
           </table>
         </div>
       )}
@@ -2279,6 +2885,10 @@ function AdminCards({ tags, themes, onUpdate }) {
   const [showBulkMedia, setShowBulkMedia] = useState(false);
   const [showBulkTags, setShowBulkTags] = useState(false);
   const [showBulkThemes, setShowBulkThemes] = useState(false);
+  const [filterTag, setFilterTag] = useState("");
+  const [filterTheme, setFilterTheme] = useState("");
+  const [allDecks, setAllDecks] = useState([]);
+  const [filterDeck, setFilterDeck] = useState("");
 
   async function load() {
     setLoading(true);
@@ -2286,8 +2896,15 @@ function AdminCards({ tags, themes, onUpdate }) {
     if (filter==="flagged") q=q.eq("is_flagged",true);
     else if (filter==="no_icon") q=q.is("front_emoji","").or("front_emoji.is.null");
     else if (filter==="no_tags") q=q.eq("tag_ids","{}");
+    else if (filter==="orphan") {
+      // Cards not in any deck that exists - load all cards then filter
+    }
     const { data } = await q; setCards(data||[]); setLoading(false);
   }
+
+  useEffect(()=>{
+    (async()=>{ const {data} = await supabase.from("decks").select("id,name,theme_icon").order("name"); setAllDecks(data||[]); })();
+  },[]);
 
   useEffect(()=>{ load(); },[filter]);
 
@@ -2344,7 +2961,15 @@ function AdminCards({ tags, themes, onUpdate }) {
     setEditingCard(null); load(); onUpdate();
   }
 
-  const filtered = cards.filter(c=>(c.front+" "+c.back+" "+(c.notes||"")).toLowerCase().includes(search.toLowerCase()));
+  const deckIds = new Set(allDecks.map(d=>d.id));
+  const filtered = cards.filter(c=>{
+    if (filter==="orphan" && deckIds.has(c.deck_id)) return false;
+    if (!(c.front+" "+c.back+" "+(c.notes||"")).toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterTag && !(c.tag_ids||[]).includes(filterTag)) return false;
+    if (filterTheme && !(c.theme_ids||[]).includes(filterTheme)) return false;
+    if (filterDeck && c.deck_id!==filterDeck) return false;
+    return true;
+  });
   const toggleAll = () => setSelected(s=>s.length===filtered.length?[]:filtered.map(c=>c.id));
   const selectedCards = cards.filter(c => selected.includes(c.id));
 
@@ -2379,14 +3004,33 @@ function AdminCards({ tags, themes, onUpdate }) {
         />
       )}
 
-      <div className="toolbar">
-        <select className="select-sm" value={filter} onChange={e=>setFilter(e.target.value)}>
+      <div className="toolbar" style={{flexWrap:"wrap"}}>
+        <select className="select-sm" value={filter} onChange={e=>setFilter(e.target.value)} title="Filtrera korttyp">
           <option value="all">Alla kort</option>
-          <option value="flagged">Flaggade</option>
+          <option value="flagged">🚩 Flaggade</option>
           <option value="no_icon">Saknar ikon</option>
           <option value="no_tags">Saknar taggar</option>
+          <option value="orphan">Utan lista</option>
         </select>
         <input className="search-input" type="search" placeholder="Sök kort…" value={search} onChange={e=>setSearch(e.target.value)} aria-label="Sök kort" />
+        {tags.length>0 && (
+          <select className="select-sm" value={filterTag} onChange={e=>setFilterTag(e.target.value)} title="Filtrera på tagg">
+            <option value="">Alla taggar</option>
+            {tags.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        )}
+        {themes.length>0 && (
+          <select className="select-sm" value={filterTheme} onChange={e=>setFilterTheme(e.target.value)} title="Filtrera på tema">
+            <option value="">Alla teman</option>
+            {themes.map(t=><option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}
+          </select>
+        )}
+        {allDecks.length>0 && (
+          <select className="select-sm" value={filterDeck} onChange={e=>setFilterDeck(e.target.value)} title="Filtrera på lista">
+            <option value="">Alla listor</option>
+            {allDecks.map(d=><option key={d.id} value={d.id}>{d.theme_icon||"📚"} {d.name}</option>)}
+          </select>
+        )}
         {selected.length > 0 && (
           <>
             <select className="select-sm" value={bulkAction} onChange={e=>setBulkAction(e.target.value)} aria-label="Massåtgärd">
