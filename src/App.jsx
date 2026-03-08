@@ -2426,6 +2426,7 @@ function AdminView({ uid, themes, tags, onUpdate }) {
     { id:"users", label:"👥 Användare" },
     { id:"tags", label:"🏷️ Taggar" },
     { id:"themes", label:"🎨 Teman" },
+    { id:"subjects", label:"📚 Ämnen" },
     { id:"log", label:"📋 Logg" },
     { id:"import", label:"📥 Import" },
     { id:"docs", label:"📖 Dokumentation" },
@@ -2448,6 +2449,7 @@ function AdminView({ uid, themes, tags, onUpdate }) {
         {tab==="users" && <AdminUsers uid={uid} />}
         {tab==="tags" && <AdminTags tags={tags} uid={uid} onUpdate={onUpdate} />}
         {tab==="themes" && <AdminThemes themes={themes} uid={uid} onUpdate={onUpdate} />}
+        {tab==="subjects" && <AdminSubjects uid={uid} onUpdate={onUpdate} />}
         {tab==="log" && <AdminLog />}
         {tab==="import" && <AdminImport uid={uid} tags={tags} themes={themes} onUpdate={onUpdate} />}
         {tab==="docs" && <DevDocs />}
@@ -3556,11 +3558,27 @@ function AdminThemes({ themes, uid, onUpdate }) {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("📚");
   const [color, setColor] = useState("#c84b2f");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [filterActive, setFilterActive] = useState("all");
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const ICONS_QUICK = ["📚","🐾","🍎","🧍","🏠","🌿","🚗","👕","📐","💻","💊","⚽","🎵","🏛️","🌍","🎯","🔬","⚖️","🧮","🎨","⭐","🌎","📖","💡","🏆"];
 
   async function createTheme() {
     if (!name.trim()) return;
-    await supabase.from("themes").insert({ name:name.trim(), icon, color, created_by:uid });
-    setName(""); onUpdate();
+    setBusy(true); setError("");
+    const { error: err } = await supabase.from("themes").insert({ name: name.trim(), icon, color, created_by: uid });
+    if (err) { setError("Fel: " + err.message); setBusy(false); return; }
+    setName(""); setIcon("📚"); setColor("#c84b2f");
+    setBusy(false); onUpdate();
+  }
+
+  async function saveEdit(t) {
+    const { error: err } = await supabase.from("themes").update({ name: editForm.name, icon: editForm.icon, color: editForm.color }).eq("id", t.id);
+    if (err) { setError("Fel: " + err.message); return; }
+    setEditingId(null); onUpdate();
   }
 
   async function toggleTheme(t) {
@@ -3572,33 +3590,389 @@ function AdminThemes({ themes, uid, onUpdate }) {
     await supabase.from("themes").delete().eq("id", t.id); onUpdate();
   }
 
+  const filtered = themes.filter(t =>
+    t.name.toLowerCase().includes(search.toLowerCase()) &&
+    (filterActive === "all" || (filterActive === "active" ? t.is_active : !t.is_active))
+  );
+
   return (
     <div>
-      <div className="form-row" style={{marginBottom:"16px"}}>
-        <input className="form-input" placeholder="Temanamn" value={name} onChange={e=>setName(e.target.value)} aria-label="Temanamn" />
-        <input className="form-input form-input-sm" placeholder="Ikon (emoji)" value={icon} onChange={e=>setIcon(e.target.value)} style={{width:80}} aria-label="Ikon" />
-        <input type="color" value={color} onChange={e=>setColor(e.target.value)} aria-label="Färg" style={{height:"38px",padding:"2px",borderRadius:"6px",border:"1px solid var(--border)"}} />
-        <button className="btn-primary" onClick={createTheme} disabled={!name.trim()}>Skapa tema</button>
+      <div className="admin-section-box">
+        <h3 className="section-title">Skapa nytt tema</h3>
+        <div className="form-row" style={{flexWrap:"wrap",gap:8,alignItems:"flex-end"}}>
+          <div className="form-field" style={{flex:"1 1 180px",marginBottom:0}}>
+            <label className="form-label" htmlFor="theme-name-input">Temanamn *</label>
+            <input id="theme-name-input" className="form-input" placeholder="t.ex. Djur" value={name}
+              onChange={e=>setName(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&name.trim()&&!busy&&createTheme()}
+              aria-label="Temanamn" />
+          </div>
+          <div className="form-field" style={{marginBottom:0}}>
+            <label className="form-label">Ikon</label>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap",maxWidth:260}}>
+              {ICONS_QUICK.map(ic=>(
+                <button key={ic} type="button"
+                  className={cn("icon-opt", icon===ic&&"active")}
+                  style={{fontSize:18,padding:"4px 6px"}}
+                  onClick={()=>setIcon(ic)}
+                  aria-pressed={icon===ic}>{ic}</button>
+              ))}
+            </div>
+          </div>
+          <div className="form-field" style={{marginBottom:0}}>
+            <label className="form-label">Färg</label>
+            <input type="color" value={color} onChange={e=>setColor(e.target.value)} aria-label="Färg"
+              style={{height:38,padding:2,borderRadius:6,border:"1px solid var(--border)",width:60,cursor:"pointer"}} />
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,paddingTop:20}}>
+            <span style={{fontSize:28,minWidth:36,textAlign:"center"}}>{icon}</span>
+            <button className="btn-primary" onClick={createTheme} disabled={!name.trim()||busy} aria-busy={busy}>
+              {busy?"Skapar…":"+ Skapa tema"}
+            </button>
+          </div>
+        </div>
+        {error && <div className="auth-error" role="alert" style={{marginTop:8}}>{error}</div>}
       </div>
-      <table className="cards-table">
-        <thead><tr><th>Ikon</th><th>Namn</th><th>Aktiv</th><th>Åtgärder</th></tr></thead>
-        <tbody>
-          {themes.map(t=>(
-            <tr key={t.id} className={cn(!t.is_active&&"row-inactive")}>
-              <td style={{fontSize:22}}>{t.icon}</td>
-              <td><span style={{display:"inline-block",width:12,height:12,borderRadius:"50%",background:t.color,marginRight:6,verticalAlign:"middle"}} />{t.name}</td>
-              <td>{t.is_active?"Ja":"Nej"}</td>
-              <td>
-                <div style={{display:"flex",gap:4}}>
-                  <button className="btn-sm btn-ghost-sm" onClick={()=>toggleTheme(t)}>{t.is_active?"Inaktivera":"Aktivera"}</button>
-                  <button className="btn-sm btn-danger-sm" onClick={()=>deleteTheme(t)}>Ta bort</button>
-                </div>
-              </td>
-            </tr>
-          ))}
-          {themes.length===0 && <tr><td colSpan={4} className="muted center-msg">Inga teman.</td></tr>}
-        </tbody>
-      </table>
+
+      <div className="toolbar" style={{marginTop:16}}>
+        <input className="search-input" type="search" placeholder="Sök tema…" value={search}
+          onChange={e=>setSearch(e.target.value)} aria-label="Sök teman" />
+        <select className="select-sm" value={filterActive} onChange={e=>setFilterActive(e.target.value)}>
+          <option value="all">Alla ({themes.length})</option>
+          <option value="active">Aktiva ({themes.filter(t=>t.is_active).length})</option>
+          <option value="inactive">Inaktiva ({themes.filter(t=>!t.is_active).length})</option>
+        </select>
+      </div>
+
+      <div className="cards-table-wrap" style={{marginTop:8}}>
+        <table className="cards-table">
+          <thead><tr><th>Ikon</th><th>Namn</th><th>Färg</th><th>Aktiv</th><th>Åtgärder</th></tr></thead>
+          <tbody>
+            {filtered.map(t=>(
+              <tr key={t.id} className={cn(!t.is_active&&"row-inactive")}>
+                {editingId===t.id ? (
+                  <>
+                    <td>
+                      <div style={{display:"flex",gap:3,flexWrap:"wrap",maxWidth:200}}>
+                        {ICONS_QUICK.map(ic=>(
+                          <button key={ic} type="button"
+                            className={cn("icon-opt",editForm.icon===ic&&"active")}
+                            style={{fontSize:16,padding:"2px 4px"}}
+                            onClick={()=>setEditForm(f=>({...f,icon:ic}))}
+                            aria-pressed={editForm.icon===ic}>{ic}</button>
+                        ))}
+                      </div>
+                    </td>
+                    <td><input className="form-input" value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={{minWidth:120}} /></td>
+                    <td><input type="color" value={editForm.color} onChange={e=>setEditForm(f=>({...f,color:e.target.value}))} style={{height:32,width:48,padding:2,borderRadius:4,border:"1px solid var(--border)",cursor:"pointer"}} /></td>
+                    <td>{t.is_active?"Ja":"Nej"}</td>
+                    <td>
+                      <div style={{display:"flex",gap:4}}>
+                        <button className="btn-sm btn-primary-sm" onClick={()=>saveEdit(t)} disabled={!editForm.name?.trim()}>Spara</button>
+                        <button className="btn-sm btn-ghost-sm" onClick={()=>setEditingId(null)}>Avbryt</button>
+                      </div>
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td style={{fontSize:24}}>{t.icon}</td>
+                    <td><strong>{t.name}</strong></td>
+                    <td><span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{display:"inline-block",width:16,height:16,borderRadius:4,background:t.color}} />{t.color}</span></td>
+                    <td><span className={cn("badge",t.is_active?"badge-green":"badge-red")}>{t.is_active?"Aktiv":"Inaktiv"}</span></td>
+                    <td>
+                      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                        <button className="btn-sm btn-ghost-sm" onClick={()=>{setEditingId(t.id);setEditForm({name:t.name,icon:t.icon,color:t.color});}}>✏️ Redigera</button>
+                        <button className="btn-sm btn-ghost-sm" onClick={()=>toggleTheme(t)}>{t.is_active?"Inaktivera":"Aktivera"}</button>
+                        <button className="btn-sm btn-danger-sm" onClick={()=>deleteTheme(t)}>Ta bort</button>
+                      </div>
+                    </td>
+                  </>
+                )}
+              </tr>
+            ))}
+            {filtered.length===0 && <tr><td colSpan={5} className="muted center-msg">Inga teman hittades.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Admin: Subjects ───────────────────────────────────────────────
+function AdminSubjects({ uid, onUpdate }) {
+  const [decks, setDecks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("name");
+  const [filterActive, setFilterActive] = useState("all");
+  const [newSubject, setNewSubject] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [editingSubject, setEditingSubject] = useState(null); // { original, value }
+  const [selectedDecks, setSelectedDecks] = useState(new Set());
+  const [assignSubject, setAssignSubject] = useState("");
+  const [showAssignModal, setShowAssignModal] = useState(false);
+
+  async function loadDecks() {
+    setLoading(true);
+    const { data } = await supabase.from("decks").select("id,name,description,theme_icon,is_active,user_id,created_at").order("name");
+    setDecks(data || []);
+    setLoading(false);
+  }
+  useEffect(() => { loadDecks(); }, []);
+
+  // Extract all unique subjects from deck descriptions
+  const allSubjects = useMemo(() => {
+    const map = {}; // subject → { deckIds, active }
+    decks.forEach(d => {
+      if (!d.description) return;
+      d.description.split(/[·,]/).map(s => s.trim()).filter(Boolean).forEach(s => {
+        if (!map[s]) map[s] = { name: s, deckIds: [], activeCount: 0 };
+        map[s].deckIds.push(d.id);
+        if (d.is_active !== false) map[s].activeCount++;
+      });
+    });
+    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+  }, [decks]);
+
+  // Decks grouped by subject membership
+  function getDecksForSubject(subjectName) {
+    return decks.filter(d =>
+      d.description && d.description.split(/[·,]/).map(s => s.trim()).includes(subjectName)
+    );
+  }
+
+  async function createSubject() {
+    const s = newSubject.trim();
+    if (!s) return;
+    if (allSubjects.find(x => x.name.toLowerCase() === s.toLowerCase())) {
+      setError("Ämnet finns redan."); return;
+    }
+    // Subjects exist implicitly — just record it by adding to a placeholder deck description
+    // or we can just acknowledge it's tag-based in descriptions. 
+    // For "creating" a subject we add it to the admin's own profile as a known subject by updating
+    // a special system deck if any, or just note it. Since subjects are description-based, 
+    // we'll keep a special "subjects registry" by storing in a system note.
+    // Simplest: create a note that this subject is "registered" — it will appear once assigned.
+    setBusy(true); setError("");
+    // We'll add it to a virtual registry by just confirming it — in practice subjects appear
+    // once assigned to decks. Show confirmation.
+    setNewSubject("");
+    setBusy(false);
+    // Immediately show assign modal to attach it to decks
+    setAssignSubject(s);
+    setShowAssignModal(true);
+  }
+
+  async function renameSubject(oldName, newName) {
+    if (!newName.trim() || newName === oldName) { setEditingSubject(null); return; }
+    const affected = getDecksForSubject(oldName);
+    for (const deck of affected) {
+      const parts = deck.description.split(/[·,]/).map(s => s.trim()).filter(Boolean);
+      const updated = parts.map(p => p === oldName ? newName.trim() : p).join(", ");
+      await supabase.from("decks").update({ description: updated || null }).eq("id", deck.id);
+    }
+    setEditingSubject(null);
+    loadDecks(); onUpdate();
+  }
+
+  async function deleteSubject(subjectName) {
+    const affected = getDecksForSubject(subjectName);
+    if (!confirm(`Ta bort ämnet "${subjectName}" från ${affected.length} lista(or)?`)) return;
+    for (const deck of affected) {
+      const parts = deck.description.split(/[·,]/).map(s => s.trim()).filter(Boolean).filter(p => p !== subjectName);
+      await supabase.from("decks").update({ description: parts.length ? parts.join(", ") : null }).eq("id", deck.id);
+    }
+    loadDecks(); onUpdate();
+  }
+
+  async function removeSubjectFromDeck(subjectName, deckId) {
+    const deck = decks.find(d => d.id === deckId);
+    if (!deck) return;
+    const parts = (deck.description || "").split(/[·,]/).map(s => s.trim()).filter(Boolean).filter(p => p !== subjectName);
+    await supabase.from("decks").update({ description: parts.length ? parts.join(", ") : null }).eq("id", deckId);
+    loadDecks(); onUpdate();
+  }
+
+  async function applyAssign() {
+    // Add assignSubject to all selectedDecks
+    for (const deckId of selectedDecks) {
+      const deck = decks.find(d => d.id === deckId);
+      if (!deck) continue;
+      const existing = (deck.description || "").split(/[·,]/).map(s => s.trim()).filter(Boolean);
+      if (existing.includes(assignSubject)) continue;
+      const updated = [...existing, assignSubject].join(", ");
+      await supabase.from("decks").update({ description: updated }).eq("id", deckId);
+    }
+    setShowAssignModal(false);
+    setSelectedDecks(new Set());
+    setAssignSubject("");
+    loadDecks(); onUpdate();
+  }
+
+  const filteredSubjects = useMemo(() => {
+    let s = allSubjects.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
+    if (filterActive === "active") s = s.filter(s => s.activeCount > 0);
+    if (filterActive === "inactive") s = s.filter(s => s.activeCount === 0);
+    if (sortBy === "name") s.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sortBy === "count") s.sort((a, b) => b.deckIds.length - a.deckIds.length);
+    return s;
+  }, [allSubjects, search, filterActive, sortBy]);
+
+  return (
+    <div>
+      {showAssignModal && (
+        <div className="editor-overlay" role="dialog" aria-modal="true" aria-label="Koppla ämne till listor">
+          <div className="editor-card editor-card-wide">
+            <h2>Koppla "{assignSubject}" till listor</h2>
+            <p className="muted" style={{marginBottom:12}}>Välj vilka listor som ska tillhöra det här ämnet.</p>
+            <div style={{maxHeight:360,overflowY:"auto",border:"1px solid var(--border)",borderRadius:8}}>
+              <table className="cards-table">
+                <thead><tr>
+                  <th style={{width:36}}>
+                    <input type="checkbox"
+                      checked={selectedDecks.size === decks.length && decks.length > 0}
+                      onChange={() => setSelectedDecks(selectedDecks.size === decks.length ? new Set() : new Set(decks.map(d=>d.id)))}
+                      aria-label="Välj alla" />
+                  </th>
+                  <th>Lista</th><th>Nuvarande ämnen</th>
+                </tr></thead>
+                <tbody>
+                  {decks.map(d => {
+                    const curSubjects = (d.description||"").split(/[·,]/).map(s=>s.trim()).filter(Boolean);
+                    const alreadyHas = curSubjects.includes(assignSubject);
+                    return (
+                      <tr key={d.id} className={cn(alreadyHas && "row-inactive")}>
+                        <td><input type="checkbox"
+                          checked={selectedDecks.has(d.id)}
+                          disabled={alreadyHas}
+                          onChange={() => {
+                            const next = new Set(selectedDecks);
+                            next.has(d.id) ? next.delete(d.id) : next.add(d.id);
+                            setSelectedDecks(next);
+                          }} /></td>
+                        <td>{d.theme_icon||"📚"} <strong>{d.name}</strong></td>
+                        <td className="notes-cell">
+                          {alreadyHas
+                            ? <span className="badge badge-green">✓ Redan kopplad</span>
+                            : curSubjects.length > 0 ? curSubjects.join(", ") : <span className="muted">–</span>
+                          }
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="editor-actions" style={{marginTop:16}}>
+              <button className="btn-primary" onClick={applyAssign} disabled={selectedDecks.size===0}>
+                Koppla till {selectedDecks.size} lista(or) →
+              </button>
+              <button className="btn-ghost" onClick={()=>{setShowAssignModal(false);setSelectedDecks(new Set());setAssignSubject("");}}>Avbryt</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="admin-section-box">
+        <h3 className="section-title">Skapa nytt ämne</h3>
+        <p className="muted" style={{marginBottom:8,fontSize:13}}>Ämnen lagras som beskrivningar på listor och hjälper användare att hitta och öva relaterade ord.</p>
+        <div className="form-row" style={{gap:8,alignItems:"flex-end"}}>
+          <div className="form-field" style={{flex:"1 1 200px",marginBottom:0}}>
+            <label className="form-label" htmlFor="subject-name-input">Ämnesnamn *</label>
+            <input id="subject-name-input" className="form-input" placeholder="t.ex. Engelska, Historia…"
+              value={newSubject} onChange={e=>{setNewSubject(e.target.value);setError("");}}
+              onKeyDown={e=>e.key==="Enter"&&newSubject.trim()&&!busy&&createSubject()} />
+          </div>
+          <button className="btn-primary" onClick={createSubject} disabled={!newSubject.trim()||busy} style={{marginBottom:0,marginTop:20}}>
+            + Skapa & koppla
+          </button>
+        </div>
+        {error && <div className="auth-error" role="alert" style={{marginTop:8}}>{error}</div>}
+      </div>
+
+      <div className="toolbar" style={{marginTop:16}}>
+        <input className="search-input" type="search" placeholder="Sök ämne…" value={search}
+          onChange={e=>setSearch(e.target.value)} aria-label="Sök ämnen" />
+        <select className="select-sm" value={sortBy} onChange={e=>setSortBy(e.target.value)}>
+          <option value="name">Namn A–Ö</option>
+          <option value="count">Flest listor</option>
+        </select>
+        <select className="select-sm" value={filterActive} onChange={e=>setFilterActive(e.target.value)}>
+          <option value="all">Alla ämnen ({allSubjects.length})</option>
+          <option value="active">Med aktiva listor</option>
+          <option value="inactive">Utan aktiva listor</option>
+        </select>
+      </div>
+
+      {loading ? <p className="muted">Laddar…</p> : (
+        filteredSubjects.length === 0
+          ? <p className="muted center-msg" style={{marginTop:24}}>Inga ämnen hittades. Ämnen skapas när du importerar ord eller kopplar listor.</p>
+          : (
+            <div className="cards-table-wrap" style={{marginTop:8}}>
+              <table className="cards-table">
+                <thead><tr><th>Ämne</th><th>Listor</th><th>Aktiva listor</th><th>Åtgärder</th></tr></thead>
+                <tbody>
+                  {filteredSubjects.map(s => {
+                    const subjectDecks = getDecksForSubject(s.name);
+                    return (
+                      <tr key={s.name}>
+                        <td>
+                          {editingSubject?.original === s.name ? (
+                            <div style={{display:"flex",gap:6}}>
+                              <input className="form-input" value={editingSubject.value}
+                                onChange={e=>setEditingSubject(prev=>({...prev,value:e.target.value}))}
+                                onKeyDown={e=>{if(e.key==="Enter")renameSubject(s.name,editingSubject.value);if(e.key==="Escape")setEditingSubject(null);}}
+                                autoFocus style={{minWidth:140}} />
+                              <button className="btn-sm btn-primary-sm" onClick={()=>renameSubject(s.name,editingSubject.value)}>✓</button>
+                              <button className="btn-sm btn-ghost-sm" onClick={()=>setEditingSubject(null)}>✕</button>
+                            </div>
+                          ) : (
+                            <strong>{s.name}</strong>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                            {subjectDecks.map(d => (
+                              <span key={d.id} className="tag-chip-sm" style={{background:"var(--bg2)",color:"var(--text)",display:"inline-flex",alignItems:"center",gap:4}}>
+                                {d.theme_icon||"📚"} {d.name}
+                                <button style={{background:"none",border:"none",cursor:"pointer",padding:"0 2px",color:"var(--muted)",fontSize:11}}
+                                  onClick={()=>removeSubjectFromDeck(s.name,d.id)}
+                                  title="Ta bort koppling" aria-label={`Ta bort ${d.name} från ämnet`}>✕</button>
+                              </span>
+                            ))}
+                            {subjectDecks.length === 0 && <span className="muted">–</span>}
+                          </div>
+                        </td>
+                        <td>
+                          <span className={cn("badge", s.activeCount > 0 ? "badge-green" : "badge-red")}>
+                            {s.activeCount} aktiva
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                            <button className="btn-sm btn-ghost-sm"
+                              onClick={()=>{setAssignSubject(s.name);setSelectedDecks(new Set());setShowAssignModal(true);}}>
+                              ＋ Koppla listor
+                            </button>
+                            <button className="btn-sm btn-ghost-sm"
+                              onClick={()=>setEditingSubject({original:s.name,value:s.name})}>
+                              ✏️ Byt namn
+                            </button>
+                            <button className="btn-sm btn-danger-sm" onClick={()=>deleteSubject(s.name)}>
+                              Ta bort
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+      )}
     </div>
   );
 }

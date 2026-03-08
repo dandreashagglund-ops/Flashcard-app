@@ -580,3 +580,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); -web
 .study-browse-arrow { font-size:16px; color:var(--tc,var(--accent)); position:absolute; bottom:10px; right:14px; opacity:0; transition:opacity 0.15s; }
 .study-browse-card:hover:not(:disabled) .study-browse-arrow { opacity:1; }
 .tab-count { display:inline-flex; align-items:center; justify-content:center; background:var(--accent); color:white; border-radius:99px; font-size:11px; padding:1px 6px; margin-left:5px; font-weight:700; }
+
+/* ── Admin section box ───────────────────────────────────────── */
+.admin-section-box { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px 20px; margin-bottom:8px; }
+.admin-section-box .section-title { margin:0 0 12px; font-size:14px; font-weight:700; color:var(--text); }
