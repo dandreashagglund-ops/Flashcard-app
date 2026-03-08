@@ -1,16 +1,51 @@
-# ✦ Glosträning
+# ✦ Glosträning v3.1
 
 En flashcard-app för att träna glosor, byggd med React + Supabase.
 
+## Nyheter i v3.1
+
+### UI-förbättringar
+- 🔧 **Bugfix**: Hänglåsikonen uppdateras nu korrekt direkt när du delar/avdelar en lista
+- 💬 **Tooltips** på alla viktiga knappar och interaktiva element
+- 🔍 **Autocomplete** på textinmatningar för ämnen och kurser
+- 📱 **Mobil**: Utloggningsknappen är nu alltid synlig
+
+### Användarfunktioner
+- ❓ **Hjälpsida** med guide, träningtips, importinstruktioner och FAQ
+- 📚 **Ämnen & kurser** kan nu kopplas till listor och importerade ord
+- 👁️ **Visa/dölj flaggade kort** i kortlistan och träningsläget
+- 🚩 **Flaggade kort** visas med banner i listans hemvy
+- ↩️ **Träna fel ord**: Öva bara ord du svarade fel på senaste gången
+- ❌ **Svarat fel någon gång**: Öva alla ord du haft svårt med
+- 🏷️ **Taggfiltrering**: Bara taggar som finns i din lista visas
+- 🔁 **Kopieringsskydd**: Kan inte kopiera en publik lista mer än en gång
+- ✓ **Kopierad-markering**: Se tydligt vilka publika listor du redan kopierat
+- 🔍 **Sortering i Utforska**: Mest kopierade, flest kort, nyaste
+
+### Importförbättringar
+- 📝 **Metadata-steg** efter CSV-uppladdning: lägg till ämnen, kurser och teman
+- 📖 **Förbättrad CSV-dokumentation** med tabell över kolumner och exempelrader
+- 📊 **Svårighet** som valfri kolumn 5 i CSV-formatet
+
+### Administratör
+- 📊 **Admin-statistik**: Mest kopierade listor och mest använda taggar visas
+- 🔍 **Kortfiltrering**: Filtrera på tagg, lista, tema och "Utan lista" (föräldralösa kort)
+- ❓ **Admin-hjälp**: Inbyggd handbok för administratörer i Admin-panelen
+
+---
+
 ## Funktioner
+
 - 🔐 Inloggning med e-post & lösenord
 - 🃏 Flashkort med framsida (ord/bild) och baksida (översättning/förklaring)
 - 🏷️ Taggar med färger (teman, svårighet, favoriter m.m.)
 - 📊 Spaced repetition – appen räknar ut när du bör repetera varje ord
 - 📈 Statistik: rätt/fel, streak, träffsäkerhet per tagg
 - 📥 Importera 1 000 vanligaste engelska ord med ett klick
-- 📋 Importera egna ord via CSV
-- 🌐 Svenska / Engelska UI
+- 📋 Importera egna ord via CSV med ämnen och kursinformation
+- 🌐 Utforska och kopiera publika ordlistor
+- 🎯 Öva ett tema tvärs över alla dina listor
+- ❓ Inbyggd hjälpsida för användare och administratörer
 
 ---
 
@@ -31,7 +66,7 @@ En flashcard-app för att träna glosor, byggd med React + Supabase.
 ### Skapa databasen
 6. Klicka på **SQL Editor** i vänstermenyn
 7. Klicka **New query**
-8. Öppna filen `supabase-setup.sql` (finns i denna mapp) och klistra in hela innehållet
+8. Öppna filen `supabase-setup.sql` och klistra in hela innehållet
 9. Klicka **Run** – du ska se "Success"
 
 ### Hämta dina API-nycklar
@@ -53,23 +88,15 @@ En flashcard-app för att träna glosor, byggd med React + Supabase.
    - `VITE_SUPABASE_URL` = din Project URL från Supabase
    - `VITE_SUPABASE_ANON_KEY` = din anon-nyckel från Supabase
 7. Klicka **Deploy** – vänta ~1 minut
-8. Du får en URL som `https://glostraning.vercel.app` – dela den med vem du vill!
 
 ---
 
 ## Lokal utveckling (valfritt)
 
 ```bash
-# Installera Node.js från nodejs.org om du inte har det
-
-# Installera beroenden
 npm install
-
-# Skapa .env-fil
 cp .env.example .env
 # Redigera .env och fyll i dina Supabase-nycklar
-
-# Starta lokalt
 npm run dev
 # Öppna http://localhost:5173
 ```
@@ -79,12 +106,21 @@ npm run dev
 ## CSV-format för import
 
 ```
-the,det/den,artikel
-be,vara,verb
-to,till/att,preposition
+framsida, baksida, kommentar, emoji, svårighet
+hund, dog, En fyrbent vän, 🐶, 1
+katt, cat,,🐱, 2
+oregelbunden, irregular, Oregelbundet verb,, 3
 ```
 
-Kolumner: `framsida,baksida,anteckningar` (anteckningar är valfritt)
+| Kolumn | Innehåll | Obligatorisk |
+|--------|----------|-------------|
+| 1 | Framsida (ord/begrepp) | Ja |
+| 2 | Baksida (översättning) | Ja |
+| 3 | Kommentar/förklaring | Nej |
+| 4 | Emoji | Nej |
+| 5 | Svårighet 1–5 | Nej |
+
+Efter CSV-uppladdning kan du koppla **ämnen** (t.ex. Engelska, Historia), **kurser** (t.ex. Psykologi A) och **teman** (t.ex. Grammatik) till de importerade orden.
 
 ---
 
@@ -93,14 +129,14 @@ Kolumner: `framsida,baksida,anteckningar` (anteckningar är valfritt)
 ```
 flashcard-app/
 ├── src/
-│   ├── App.jsx          # All applogik och komponenter
+│   ├── App.jsx          # All applogik och komponenter (v3.1)
 │   └── index.css        # Styling
 ├── index.html
 ├── package.json
 ├── vite.config.js
-├── vercel.json          # SPA-routing för Vercel
-├── supabase-setup.sql   # Kör i Supabase SQL Editor
-└── .env.example         # Mall för miljövariabler
+├── vercel.json
+├── supabase-setup.sql
+└── .env.example
 ```
 
 ---
@@ -109,7 +145,7 @@ flashcard-app/
 
 | Del | Teknologi | Kostnad |
 |-----|-----------|---------|
-| Frontend | React + Vite | Gratis |
+| Frontend | React 18 + Vite | Gratis |
 | Backend/DB | Supabase (PostgreSQL) | Gratis (500 MB, 50k req/mån) |
 | Hosting | Vercel | Gratis (100 GB bandwidth/mån) |
 | Auth | Supabase Auth | Gratis (50k MAU) |
