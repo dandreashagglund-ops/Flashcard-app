@@ -1,4 +1,48 @@
 -- ============================================================
+-- BUGFIX PATCH — Kör detta i Supabase > SQL Editor
+-- Lägger till WITH CHECK på admin-policies så att INSERT/UPDATE fungerar
+-- ============================================================
+
+-- Themes
+drop policy if exists "Admins manage themes" on public.themes;
+create policy "Admins manage themes"
+  on public.themes for all
+  using  (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin'))
+  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin'));
+
+-- Tags
+drop policy if exists "Admins manage global tags" on public.tags;
+create policy "Admins manage global tags"
+  on public.tags for all
+  using  (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin'))
+  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin'));
+
+-- Decks
+drop policy if exists "Admins manage all decks" on public.decks;
+create policy "Admins manage all decks"
+  on public.decks for all
+  using  (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('sysadmin','group_manager')))
+  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('sysadmin','group_manager')));
+
+-- Cards
+drop policy if exists "Admins manage all cards" on public.cards;
+create policy "Admins manage all cards"
+  on public.cards for all
+  using  (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('sysadmin','group_manager')))
+  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('sysadmin','group_manager')));
+
+-- Profiles
+drop policy if exists "Admins manage all profiles" on public.profiles;
+create policy "Admins manage all profiles"
+  on public.profiles for all
+  using  (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin'))
+  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin'));
+
+-- ============================================================
+-- Fullständigt setup-skript (inkl. ovanstående fix) följer nedan
+-- ============================================================
+
+-- ============================================================
 -- Glosträning v3 – Supabase setup SQL
 -- Kör detta i Supabase > SQL Editor
 -- ============================================================
@@ -27,6 +71,8 @@ create policy "Users update own profile"
 drop policy if exists "Admins manage all profiles" on public.profiles;
 create policy "Admins manage all profiles"
   on public.profiles for all using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin')
+  ) with check (
     exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin')
   );
 
@@ -64,6 +110,8 @@ drop policy if exists "Admins manage themes" on public.themes;
 create policy "Admins manage themes"
   on public.themes for all using (
     exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin')
+  ) with check (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin')
   );
 
 -- ── 3. TAGS (globala taggar) ─────────────────────────────────────
@@ -91,6 +139,8 @@ create policy "Users manage own tags"
 drop policy if exists "Admins manage global tags" on public.tags;
 create policy "Admins manage global tags"
   on public.tags for all using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin')
+  ) with check (
     exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'sysadmin')
   );
 
@@ -125,6 +175,8 @@ create policy "Anyone can read public decks"
 drop policy if exists "Admins manage all decks" on public.decks;
 create policy "Admins manage all decks"
   on public.decks for all using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('sysadmin','group_manager'))
+  ) with check (
     exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('sysadmin','group_manager'))
   );
 
@@ -166,6 +218,8 @@ create policy "Anyone can read public deck cards"
 drop policy if exists "Admins manage all cards" on public.cards;
 create policy "Admins manage all cards"
   on public.cards for all using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('sysadmin','group_manager'))
+  ) with check (
     exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('sysadmin','group_manager'))
   );
 
