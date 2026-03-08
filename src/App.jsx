@@ -475,6 +475,7 @@ function MainApp({ session }) {
   ];
   const mainNav = [
     { id:"decks", icon:"◧", label:"Ordlistor" },
+    { id:"new_deck", icon:"＋", label:"Skapa lista" },
     { id:"explore", icon:"🌐", label:"Utforska" },
     { id:"study_theme", icon:"🎯", label:"Öva tema" },
     { id:"stats", icon:"📈", label:"Statistik" },
@@ -482,6 +483,8 @@ function MainApp({ session }) {
     { id:"profile", icon:"👤", label:"Profil" },
     ...(isAdmin ? [{ id:"admin", icon:"⚙️", label:"Admin" }] : []),
   ];
+
+  const [showNewDeckModal, setShowNewDeckModal] = useState(false);
 
   return (
     <div className="app">
@@ -496,7 +499,10 @@ function MainApp({ session }) {
         )}
         {insideDeck
           ? deckNav.map(n => <NavBtn key={n.id} n={n} active={view===n.id} onClick={()=>setView(n.id)} />)
-          : mainNav.map(n => <NavBtn key={n.id} n={n} active={view===n.id} onClick={()=>{ if(n.id!=="study_theme") setActiveDeck(null); setView(n.id); }} />)
+          : mainNav.map(n => <NavBtn key={n.id} n={n} active={view===n.id} onClick={()=>{
+              if (n.id==="new_deck") { setShowNewDeckModal(true); return; }
+              if(n.id!=="study_theme") setActiveDeck(null); setView(n.id);
+            }} />)
         }
         <div className="sidebar-spacer" />
         <button className="nav-btn logout-btn" onClick={async()=>{
@@ -510,6 +516,15 @@ function MainApp({ session }) {
       </nav>
 
       <main className="content" id="main-content">
+        {showNewDeckModal && (
+          <NewDeckFlow
+            themes={themes}
+            tags={tags}
+            uid={uid}
+            onDone={(deck) => { setShowNewDeckModal(false); refreshAll(); if (deck) openDeck(deck); }}
+            onCancel={() => setShowNewDeckModal(false)}
+          />
+        )}
         {view==="decks" && <DecksView decks={decks} uid={uid} tags={tags} themes={themes} onOpen={openDeck} onUpdate={loadDecks} />}
         {view==="explore" && <ExploreView uid={uid} tags={tags} themes={themes} onImport={loadGlobals} copiedDeckIds={copiedDeckIds} />}
         {view==="study_theme" && <StudyThemeView uid={uid} themes={themes} tags={tags} onStart={startStudy} />}
@@ -538,13 +553,17 @@ function NavBtn({ n, active, onClick }) {
 // ─────────────────────────────────────────────────────────────────
 // DECKS VIEW
 // ─────────────────────────────────────────────────────────────────
-function DecksView({ decks, uid, tags, themes, onOpen, onUpdate }) {
+function DecksView({ decks: decksProp, uid, tags, themes, onOpen, onUpdate }) {
   const [showEditor, setShowEditor] = useState(false);
   const [editing, setEditing] = useState(null);
   const [cardCounts, setCardCounts] = useState({});
   const [sort, setSort] = useState("created_at");
   const [search, setSearch] = useState("");
   const [filterTheme, setFilterTheme] = useState("");
+  const [filterSubject, setFilterSubject] = useState("");
+  // Local decks state to allow instant UI updates (e.g. lock icon)
+  const [decks, setDecks] = useState(decksProp);
+  useEffect(() => { setDecks(decksProp); }, [decksProp]);
 
   useEffect(() => {
     (async()=>{
@@ -596,23 +615,35 @@ function DecksView({ decks, uid, tags, themes, onOpen, onUpdate }) {
   }
   async function toggleShare(deck) {
     const newVal = !deck.is_public;
-    // Optimistically update local state so icon updates immediately
+    // Optimistically update local state so icon updates immediately (including on mobile)
     setDecks(prev => prev.map(d => d.id === deck.id ? {...d, is_public: newVal} : d));
     await supabase.from("decks").update({ is_public: newVal }).eq("id", deck.id);
     onUpdate();
   }
 
+  // Collect all subjects from deck descriptions for filtering
+  const allSubjects = useMemo(() => {
+    const set = new Set();
+    decks.forEach(d => {
+      if (d.description) {
+        d.description.split(/[·,]/).map(s => s.trim()).filter(Boolean).forEach(s => set.add(s));
+      }
+    });
+    return [...set].sort();
+  }, [decks]);
+
   const sorted = useMemo(() => {
     let d = decks.filter(d =>
       d.name.toLowerCase().includes(search.toLowerCase()) &&
-      (!filterTheme || (d.theme_ids||[]).includes(filterTheme))
+      (!filterTheme || (d.theme_ids||[]).includes(filterTheme)) &&
+      (!filterSubject || (d.description||"").toLowerCase().includes(filterSubject.toLowerCase()))
     );
     if (sort==="name") d.sort((a,b)=>a.name.localeCompare(b.name));
     else if (sort==="count") d.sort((a,b)=>(cardCounts[b.id]||0)-(cardCounts[a.id]||0));
     else if (sort==="use_count") d.sort((a,b)=>(b.use_count||0)-(a.use_count||0));
     else d.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
     return d;
-  }, [decks, search, sort, filterTheme, cardCounts]);
+  }, [decks, search, sort, filterTheme, filterSubject, cardCounts]);
 
   return (
     <div className="view">
@@ -633,6 +664,12 @@ function DecksView({ decks, uid, tags, themes, onOpen, onUpdate }) {
           <select className="select-sm" value={filterTheme} onChange={e=>setFilterTheme(e.target.value)} aria-label="Filtrera tema">
             <option value="">Alla teman</option>
             {themes.map(t=><option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}
+          </select>
+        )}
+        {allSubjects.length>0 && (
+          <select className="select-sm" value={filterSubject} onChange={e=>setFilterSubject(e.target.value)} aria-label="Filtrera ämne">
+            <option value="">Alla ämnen</option>
+            {allSubjects.map(s=><option key={s} value={s}>{s}</option>)}
           </select>
         )}
       </div>
@@ -679,138 +716,92 @@ function DecksView({ decks, uid, tags, themes, onOpen, onUpdate }) {
   );
 }
 
-// ── New Deck Flow (steg 1: skapa lista, steg 2: importera ord) ────
+// ── New Deck Flow (steg 1–3: skapa lista, importera ord, beskriv) ─
 function NewDeckFlow({ themes, tags, uid, onDone, onCancel, editDeck, onSave }) {
   const [step, setStep] = useState(editDeck ? "edit" : "create");
   const [createdDeck, setCreatedDeck] = useState(null);
-
-  // Step 1 form state
   const [form, setForm] = useState({
-    name: editDeck?.name||"",
-    description: editDeck?.description||"",
-    front_lang: editDeck?.front_lang||"en",
-    back_lang: editDeck?.back_lang||"sv",
-    color: editDeck?.color||"#c84b2f",
-    theme_icon: editDeck?.theme_icon||"📚",
-    is_public: editDeck?.is_public||false,
-    theme_ids: editDeck?.theme_ids||[],
+    name: editDeck?.name||"", description: editDeck?.description||"",
+    front_lang: editDeck?.front_lang||"en", back_lang: editDeck?.back_lang||"sv",
+    color: editDeck?.color||"#c84b2f", theme_icon: editDeck?.theme_icon||"📚",
+    is_public: editDeck?.is_public||false, theme_ids: editDeck?.theme_ids||[],
     ...(editDeck?.id ? { id: editDeck.id } : {}),
   });
   const f = v => setForm(p => ({...p,...v}));
-
-  // Auto-detect type: same lang = concept, different = vocabulary
   const pairType = form.front_lang === form.back_lang ? "concept" : "vocabulary";
-
   const ICONS = ["📚","🇬🇧","🇸🇪","🇩🇪","🇫🇷","🇪🇸","🇯🇵","🔬","💊","⚖️","💻","🧮","🎵","🏛️","🌍","🎨","⭐","🐾","🍎","🧍","🏠","🌿","🚗","👕","📐","⚽","🎯"];
   const COLORS = ["#c84b2f","#2f7dc8","#2a7a4f","#7a2f8f","#c87a2f","#1a3a5c","#5a2f7a","#c82f4b","#2fa87a","#8f2fc8"];
-
-  // Step 2 import state
   const [csv, setCsv] = useState("");
   const [importStatus, setImportStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [parsedRows, setParsedRows] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [selThemeIds, setSelThemeIds] = useState([]);
+  const SUBJECT_SUGGESTIONS = ["Svenska","Engelska","Franska","Tyska","Spanska","Historia","Matematik","Biologi","Fysik","Kemi","Geografi","Religion","Samhällskunskap","Psykologi","Filosofi","Musik","Idrott","Konst"];
+  const COURSE_SUGGESTIONS = ["Engelska 5","Engelska 6","Engelska 7","Svenska 1","Svenska 2","Svenska 3","Historia A","Historia B","Psykologi A","Psykologi B","Biologi 1","Biologi 2","Matematik 1a","Matematik 1b","Matematik 2","Matematik 3","Matematik 4","Matematik 5"];
 
   function parseCSV(text) {
     return text.trim().split("\n").filter(l => l.trim()).map(line => {
-      const parts = line.split(",").map(p => p.trim().replace(/^["']|["']$/g, ""));
-      return { front: parts[0]||"", back: parts[1]||"", notes: parts[2]||null, emoji: parts[3]||"" };
+      const parts = line.split(",").map(p => p.trim().replace(/^["'']|["'']$/g, ""));
+      return { front: parts[0]||"", back: parts[1]||"", notes: parts[2]||null, emoji: parts[3]||"", difficulty: parts[4] ? parseInt(parts[4])||2 : 2 };
     }).filter(r => r.front && r.back);
   }
 
   async function handleCreateDeck() {
     if (!form.name.trim()) return;
     setBusy(true);
-    const payload = {
-      name: form.name.trim(),
-      description: form.description || null,
-      front_lang: form.front_lang,
-      back_lang: form.back_lang,
-      color: form.color,
-      theme_icon: form.theme_icon,
-      is_public: form.is_public,
-      pair_type: pairType,
-    };
-    const { data: deck, error } = await supabase.from("decks")
-      .insert({...payload, user_id: uid})
-      .select().single();
+    const payload = { name: form.name.trim(), description: form.description || null, front_lang: form.front_lang, back_lang: form.back_lang, color: form.color, theme_icon: form.theme_icon, is_public: form.is_public, pair_type: pairType };
+    const { data: deck, error } = await supabase.from("decks").insert({...payload, user_id: uid}).select().single();
     if (error) {
-      // Retry without new columns if schema cache issue
-      const { data: deck2, error: e2 } = await supabase.from("decks")
-        .insert({ name: payload.name, description: payload.description, front_lang: payload.front_lang, back_lang: payload.back_lang, color: payload.color, theme_icon: payload.theme_icon, is_public: payload.is_public, user_id: uid })
-        .select().single();
+      const { data: deck2, error: e2 } = await supabase.from("decks").insert({ name: payload.name, description: payload.description, front_lang: payload.front_lang, back_lang: payload.back_lang, color: payload.color, theme_icon: payload.theme_icon, is_public: payload.is_public, user_id: uid }).select().single();
       if (e2) { alert("Fel vid skapande: " + e2.message); setBusy(false); return; }
       setCreatedDeck(deck2);
-    } else {
-      setCreatedDeck(deck);
-    }
+    } else { setCreatedDeck(deck); }
     await logEvent(uid, "deck_created", { deck_name: payload.name });
     setBusy(false);
     setStep("import");
   }
 
-  async function handleImport() {
-    if (!csv.trim() || !createdDeck) return;
-    setBusy(true); setImportStatus("");
+  function handleCsvNext() {
     const rows = parseCSV(csv);
-    if (!rows.length) { setImportStatus("Inga giltiga rader hittades."); setBusy(false); return; }
+    if (!rows.length) { setImportStatus("Inga giltiga rader hittades."); return; }
+    setParsedRows(rows); setImportStatus(""); setStep("metadata");
+  }
 
-    const withEmoji = rows.map(r => ({ user_id: uid, deck_id: createdDeck.id, front: r.front, back: r.back, notes: r.notes, front_emoji: r.emoji }));
+  async function handleImport() {
+    if (!parsedRows.length || !createdDeck) return;
+    setBusy(true); setImportStatus("");
+    const withEmoji = parsedRows.map(r => ({ user_id: uid, deck_id: createdDeck.id, front: r.front, back: r.back, notes: r.notes || null, front_emoji: r.emoji || "", difficulty: r.difficulty || 2, theme_ids: selThemeIds }));
     let { error } = await supabase.from("cards").insert(withEmoji);
     if (error && error.message.includes("front_emoji")) {
-      const withoutEmoji = rows.map(r => ({ user_id: uid, deck_id: createdDeck.id, front: r.front, back: r.back, notes: r.notes }));
-      const res2 = await supabase.from("cards").insert(withoutEmoji);
+      const res2 = await supabase.from("cards").insert(parsedRows.map(r => ({ user_id: uid, deck_id: createdDeck.id, front: r.front, back: r.back, notes: r.notes })));
       error = res2.error;
     }
     if (error) { setImportStatus("Fel: " + error.message); setBusy(false); return; }
-
-    await logEvent(uid, "data_imported", { deck_id: createdDeck.id, count: rows.length });
+    if (subjects.length || courses.length) {
+      const extraDesc = [...subjects, ...courses].join(", ");
+      await supabase.from("decks").update({ description: createdDeck.description ? `${createdDeck.description} · ${extraDesc}` : extraDesc }).eq("id", createdDeck.id);
+    }
+    await logEvent(uid, "data_imported", { deck_id: createdDeck.id, count: parsedRows.length, subjects, courses });
     setBusy(false);
     onDone(createdDeck);
   }
 
-  // Edit mode (existing deck) — simplified, no import step
   if (step === "edit") {
     return (
       <div className="editor-overlay" role="dialog" aria-modal="true" aria-label="Redigera ordlista">
         <div className="editor-card">
           <h2>Redigera ordlista</h2>
-          <div className="form-field">
-            <label className="form-label" htmlFor="deck-name">Namn *</label>
-            <input id="deck-name" className="form-input" value={form.name} onChange={e=>f({name:e.target.value})} required />
-          </div>
-          <div className="form-field">
-            <label className="form-label" htmlFor="deck-desc">Beskrivning</label>
-            <input id="deck-desc" className="form-input" value={form.description} onChange={e=>f({description:e.target.value})} />
-          </div>
+          <div className="form-field"><label className="form-label" htmlFor="deck-name">Namn *</label><input id="deck-name" className="form-input" value={form.name} onChange={e=>f({name:e.target.value})} required /></div>
+          <div className="form-field"><label className="form-label" htmlFor="deck-desc">Beskrivning</label><input id="deck-desc" className="form-input" value={form.description} onChange={e=>f({description:e.target.value})} /></div>
           <div className="form-row">
-            <div className="form-field">
-              <label className="form-label" htmlFor="edit-fl">Framsida</label>
-              <select id="edit-fl" className="form-input" value={form.front_lang} onChange={e=>f({front_lang:e.target.value})}>
-                {ALL_LANGS.filter(l=>l!=="concept").map(l=><option key={l} value={l}>{LANG_FLAGS[l]} {LANG_NAMES[l]}</option>)}
-              </select>
-            </div>
-            <div className="form-field">
-              <label className="form-label" htmlFor="edit-bl">Baksida</label>
-              <select id="edit-bl" className="form-input" value={form.back_lang} onChange={e=>f({back_lang:e.target.value})}>
-                {ALL_LANGS.filter(l=>l!=="concept").map(l=><option key={l} value={l}>{LANG_FLAGS[l]} {LANG_NAMES[l]}</option>)}
-              </select>
-            </div>
+            <div className="form-field"><label className="form-label" htmlFor="edit-fl">Framsida</label><select id="edit-fl" className="form-input" value={form.front_lang} onChange={e=>f({front_lang:e.target.value})}>{ALL_LANGS.filter(l=>l!=="concept").map(l=><option key={l} value={l}>{LANG_FLAGS[l]} {LANG_NAMES[l]}</option>)}</select></div>
+            <div className="form-field"><label className="form-label" htmlFor="edit-bl">Baksida</label><select id="edit-bl" className="form-input" value={form.back_lang} onChange={e=>f({back_lang:e.target.value})}>{ALL_LANGS.filter(l=>l!=="concept").map(l=><option key={l} value={l}>{LANG_FLAGS[l]} {LANG_NAMES[l]}</option>)}</select></div>
           </div>
-          <div className="form-field">
-            <label className="form-label">Ikon</label>
-            <div className="icon-picker">
-              {ICONS.map(ic=><button key={ic} type="button" className={cn("icon-opt",form.theme_icon===ic&&"active")} onClick={()=>f({theme_icon:ic})} aria-pressed={form.theme_icon===ic}>{ic}</button>)}
-            </div>
-          </div>
-          <div className="form-field">
-            <label className="form-label">Färg</label>
-            <div className="color-picker">
-              {COLORS.map(c=><button key={c} type="button" className={cn("color-opt",form.color===c&&"active")} style={{background:c}} onClick={()=>f({color:c})} aria-label={`Välj färg ${c}`} aria-pressed={form.color===c} />)}
-            </div>
-          </div>
-          <label className="form-label checkbox-label">
-            <input type="checkbox" checked={form.is_public} onChange={e=>f({is_public:e.target.checked})} />
-            <span>Gör listan publik</span>
-          </label>
+          <div className="form-field"><label className="form-label">Ikon</label><div className="icon-picker">{ICONS.map(ic=><button key={ic} type="button" className={cn("icon-opt",form.theme_icon===ic&&"active")} onClick={()=>f({theme_icon:ic})} aria-pressed={form.theme_icon===ic}>{ic}</button>)}</div></div>
+          <div className="form-field"><label className="form-label">Färg</label><div className="color-picker">{COLORS.map(c=><button key={c} type="button" className={cn("color-opt",form.color===c&&"active")} style={{background:c}} onClick={()=>f({color:c})} aria-label={`Välj färg ${c}`} aria-pressed={form.color===c} />)}</div></div>
+          <label className="form-label checkbox-label"><input type="checkbox" checked={form.is_public} onChange={e=>f({is_public:e.target.checked})} /><span>Gör listan publik</span></label>
           <div className="editor-actions">
             <button className="btn-primary" onClick={()=>form.name.trim()&&onSave(form)} disabled={!form.name.trim()}>Spara</button>
             <button className="btn-ghost" onClick={onCancel}>Avbryt</button>
@@ -820,66 +811,28 @@ function NewDeckFlow({ themes, tags, uid, onDone, onCancel, editDeck, onSave }) 
     );
   }
 
-  // Step 1: Create deck
   if (step === "create") {
     return (
       <div className="editor-overlay" role="dialog" aria-modal="true" aria-label="Skapa ny ordlista">
         <div className="editor-card">
           <div className="flow-steps">
-            <span className="flow-step active">1. Skapa lista</span>
-            <span className="flow-step-arrow">→</span>
-            <span className="flow-step">2. Lägg till ord</span>
+            <span className="flow-step active">1. Skapa lista</span><span className="flow-step-arrow">→</span>
+            <span className="flow-step">2. Lägg till ord</span><span className="flow-step-arrow">→</span>
+            <span className="flow-step">3. Beskriv orden</span>
           </div>
           <h2>Skapa ny ordlista</h2>
-
-          <div className="form-field">
-            <label className="form-label" htmlFor="deck-name">Namn *</label>
-            <input id="deck-name" className="form-input" value={form.name} onChange={e=>f({name:e.target.value})} placeholder="t.ex. Engelska åk 7" required autoFocus />
-          </div>
-          <div className="form-field">
-            <label className="form-label" htmlFor="deck-desc">Beskrivning (valfritt)</label>
-            <input id="deck-desc" className="form-input" value={form.description} onChange={e=>f({description:e.target.value})} placeholder="t.ex. Kapitel 3–5" />
-          </div>
-
+          <div className="form-field"><label className="form-label" htmlFor="deck-name">Namn *</label><input id="deck-name" className="form-input" value={form.name} onChange={e=>f({name:e.target.value})} placeholder="t.ex. Engelska åk 7" required autoFocus /></div>
+          <div className="form-field"><label className="form-label" htmlFor="deck-desc">Beskrivning (valfritt)</label><input id="deck-desc" className="form-input" value={form.description} onChange={e=>f({description:e.target.value})} placeholder="t.ex. Kapitel 3–5" /></div>
           <div className="form-row">
-            <div className="form-field">
-              <label className="form-label" htmlFor="fl">Framsida *</label>
-              <select id="fl" className="form-input" value={form.front_lang} onChange={e=>f({front_lang:e.target.value})}>
-                {ALL_LANGS.filter(l=>l!=="concept").map(l=><option key={l} value={l}>{LANG_FLAGS[l]} {LANG_NAMES[l]}</option>)}
-              </select>
-            </div>
-            <div className="form-field">
-              <label className="form-label" htmlFor="bl">Baksida *</label>
-              <select id="bl" className="form-input" value={form.back_lang} onChange={e=>f({back_lang:e.target.value})}>
-                {ALL_LANGS.filter(l=>l!=="concept").map(l=><option key={l} value={l}>{LANG_FLAGS[l]} {LANG_NAMES[l]}</option>)}
-              </select>
-            </div>
+            <div className="form-field"><label className="form-label" htmlFor="fl">Framsida *</label><select id="fl" className="form-input" value={form.front_lang} onChange={e=>f({front_lang:e.target.value})}>{ALL_LANGS.filter(l=>l!=="concept").map(l=><option key={l} value={l}>{LANG_FLAGS[l]} {LANG_NAMES[l]}</option>)}</select></div>
+            <div className="form-field"><label className="form-label" htmlFor="bl">Baksida *</label><select id="bl" className="form-input" value={form.back_lang} onChange={e=>f({back_lang:e.target.value})}>{ALL_LANGS.filter(l=>l!=="concept").map(l=><option key={l} value={l}>{LANG_FLAGS[l]} {LANG_NAMES[l]}</option>)}</select></div>
           </div>
-
-          {pairType === "concept" && (
-            <div className="type-hint">💡 Samma språk på båda sidor — listan blir en <strong>begreppslista</strong></div>
-          )}
-          {pairType === "vocabulary" && form.front_lang && form.back_lang && (
-            <div className="type-hint">📖 Olika språk — listan blir en <strong>gloslista</strong> ({LANG_FLAGS[form.front_lang]} → {LANG_FLAGS[form.back_lang]})</div>
-          )}
-
-          <div className="form-field">
-            <label className="form-label">Ikon</label>
-            <div className="icon-picker">
-              {ICONS.map(ic=><button key={ic} type="button" className={cn("icon-opt",form.theme_icon===ic&&"active")} onClick={()=>f({theme_icon:ic})} aria-pressed={form.theme_icon===ic}>{ic}</button>)}
-            </div>
-          </div>
-          <div className="form-field">
-            <label className="form-label">Färg</label>
-            <div className="color-picker">
-              {COLORS.map(c=><button key={c} type="button" className={cn("color-opt",form.color===c&&"active")} style={{background:c}} onClick={()=>f({color:c})} aria-label={`Välj färg ${c}`} aria-pressed={form.color===c} />)}
-            </div>
-          </div>
-
+          {pairType==="concept" && <div className="type-hint">💡 Samma språk — <strong>begreppslista</strong></div>}
+          {pairType==="vocabulary" && form.front_lang && form.back_lang && <div className="type-hint">📖 Olika språk — <strong>gloslista</strong> ({LANG_FLAGS[form.front_lang]} → {LANG_FLAGS[form.back_lang]})</div>}
+          <div className="form-field"><label className="form-label">Ikon</label><div className="icon-picker">{ICONS.map(ic=><button key={ic} type="button" className={cn("icon-opt",form.theme_icon===ic&&"active")} onClick={()=>f({theme_icon:ic})} aria-pressed={form.theme_icon===ic}>{ic}</button>)}</div></div>
+          <div className="form-field"><label className="form-label">Färg</label><div className="color-picker">{COLORS.map(c=><button key={c} type="button" className={cn("color-opt",form.color===c&&"active")} style={{background:c}} onClick={()=>f({color:c})} aria-label={`Välj färg ${c}`} aria-pressed={form.color===c} />)}</div></div>
           <div className="editor-actions">
-            <button className="btn-primary" onClick={handleCreateDeck} disabled={!form.name.trim() || busy} aria-busy={busy}>
-              {busy ? "Skapar…" : "Nästa: Lägg till ord →"}
-            </button>
+            <button className="btn-primary" onClick={handleCreateDeck} disabled={!form.name.trim()||busy} aria-busy={busy}>{busy?"Skapar…":"Nästa: Lägg till ord →"}</button>
             <button className="btn-ghost" onClick={onCancel}>Avbryt</button>
           </div>
         </div>
@@ -887,49 +840,72 @@ function NewDeckFlow({ themes, tags, uid, onDone, onCancel, editDeck, onSave }) 
     );
   }
 
-  // Step 2: Import words
   const preview = parseCSV(csv).slice(0, 5);
   const total = parseCSV(csv).length;
 
+  if (step === "import") {
+    return (
+      <div className="editor-overlay" role="dialog" aria-modal="true" aria-label="Importera ord">
+        <div className="editor-card editor-card-wide">
+          <div className="flow-steps">
+            <span className="flow-step done">1. Skapa lista ✓</span><span className="flow-step-arrow">→</span>
+            <span className="flow-step active">2. Lägg till ord</span><span className="flow-step-arrow">→</span>
+            <span className="flow-step">3. Beskriv orden</span>
+          </div>
+          <h2>Lägg till ord i <em>{createdDeck?.theme_icon} {createdDeck?.name}</em></h2>
+          <p className="import-format">Klistra in ord, ett par per rad: <code>framsida, baksida, kommentar, emoji, svårighet</code></p>
+          <textarea className="form-input form-textarea import-textarea" value={csv} onChange={e=>setCsv(e.target.value)} placeholder={"hund, dog\nkatt, cat\nfågel, bird, En bevingad vän, 🐦"} rows={10} aria-label="Ord att importera" autoFocus />
+          {preview.length>0 && (
+            <div className="import-preview">
+              <strong>Förhandsgranskning — {total} par:</strong>
+              <table className="cards-table"><thead><tr><th>Framsida</th><th>Baksida</th><th>Kommentar</th><th>Emoji</th></tr></thead>
+              <tbody>{preview.map((r,i)=><tr key={i}><td>{r.front}</td><td>{r.back}</td><td>{r.notes}</td><td>{r.emoji}</td></tr>)}</tbody></table>
+              {total>5 && <p className="muted">…och {total-5} till</p>}
+            </div>
+          )}
+          {importStatus && <div className={cn("import-status",importStatus.startsWith("Fel")?"import-err":"import-ok")} role="status">{importStatus}</div>}
+          <div className="editor-actions">
+            <button className="btn-primary" onClick={handleCsvNext} disabled={!csv.trim()||busy}>{total>0?`Nästa: Beskriv ${total} ord →`:"Nästa: Beskriv orden →"}</button>
+            <button className="btn-ghost" onClick={()=>onDone(createdDeck)}>Hoppa över (lägg till manuellt)</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Step 3: Metadata
   return (
-    <div className="editor-overlay" role="dialog" aria-modal="true" aria-label="Importera ord">
+    <div className="editor-overlay" role="dialog" aria-modal="true" aria-label="Beskriv orden">
       <div className="editor-card editor-card-wide">
         <div className="flow-steps">
-          <span className="flow-step done">1. Skapa lista ✓</span>
-          <span className="flow-step-arrow">→</span>
-          <span className="flow-step active">2. Lägg till ord</span>
+          <span className="flow-step done">1. Skapa lista ✓</span><span className="flow-step-arrow">→</span>
+          <span className="flow-step done">2. Lägg till ord ✓</span><span className="flow-step-arrow">→</span>
+          <span className="flow-step active">3. Beskriv orden</span>
         </div>
-        <h2>Lägg till ord i <em>{createdDeck?.theme_icon} {createdDeck?.name}</em></h2>
-        <p className="import-format">
-          Klistra in ord, ett par per rad: <code>framsida, baksida, kommentar, emoji</code><br />
-          Kommentar och emoji är valfria. Exempel: <code>hund, dog, En fyrbent vän, 🐶</code>
-        </p>
-        <textarea
-          className="form-input form-textarea import-textarea"
-          value={csv}
-          onChange={e => setCsv(e.target.value)}
-          placeholder={"hund, dog\nkatt, cat\nfågel, bird, En bevingad vän, 🐦"}
-          rows={10}
-          aria-label="Ord att importera"
-          autoFocus
-        />
-        {preview.length > 0 && (
-          <div className="import-preview">
-            <strong>Förhandsgranskning — {total} par:</strong>
-            <table className="cards-table">
-              <thead><tr><th>Framsida</th><th>Baksida</th><th>Kommentar</th><th>Emoji</th></tr></thead>
-              <tbody>{preview.map((r,i) => <tr key={i}><td>{r.front}</td><td>{r.back}</td><td>{r.notes}</td><td>{r.emoji}</td></tr>)}</tbody>
-            </table>
-            {total > 5 && <p className="muted">…och {total - 5} till</p>}
+        <h2>Beskriv dina ord</h2>
+        <p className="muted" style={{marginBottom:16}}>Redo att importera <strong>{parsedRows.length} ord</strong>. Lägg till ämnen och kurser för enklare filtrering.</p>
+        <div className="form-field">
+          <label className="form-label">Ämnen <Tooltip text="Skolämnen orden tillhör"><span className="help-icon">?</span></Tooltip></label>
+          <TagInput tags={subjects} onChange={setSubjects} allTags={SUBJECT_SUGGESTIONS} placeholder="t.ex. Engelska, Historia…" />
+        </div>
+        <div className="form-field">
+          <label className="form-label">Kurser <Tooltip text="Specifika kurser"><span className="help-icon">?</span></Tooltip></label>
+          <TagInput tags={courses} onChange={setCourses} allTags={COURSE_SUGGESTIONS} placeholder="t.ex. Psykologi A, Engelska 5…" />
+        </div>
+        {themes.length>0 && (
+          <div className="form-field">
+            <label className="form-label">Teman</label>
+            <div className="tag-picker">
+              {themes.map(t=><button key={t.id} type="button" className={cn("tag-chip",selThemeIds.includes(t.id)&&"active")} onClick={()=>setSelThemeIds(p=>p.includes(t.id)?p.filter(x=>x!==t.id):[...p,t.id])} aria-pressed={selThemeIds.includes(t.id)}>{t.icon} {t.name}</button>)}
+            </div>
           </div>
         )}
-        {importStatus && <div className={cn("import-status", importStatus.startsWith("Fel") ? "import-err" : "import-ok")} role="status">{importStatus}</div>}
         <div className="editor-actions">
-          <button className="btn-primary" onClick={handleImport} disabled={!csv.trim() || busy} aria-busy={busy}>
-            {busy ? "Importerar…" : `Importera ${total > 0 ? total + " par" : "ord"} →`}
-          </button>
-          <button className="btn-ghost" onClick={() => onDone(createdDeck)}>Hoppa över (lägg till manuellt)</button>
+          <button className="btn-primary" onClick={handleImport} disabled={busy} aria-busy={busy}>{busy?"Importerar…":`Importera ${parsedRows.length} ord →`}</button>
+          <button className="btn-ghost" onClick={()=>setStep("import")}>← Tillbaka</button>
+          <button className="btn-ghost" onClick={()=>onDone(createdDeck)}>Hoppa över</button>
         </div>
+        {importStatus && <div className={cn("import-status",importStatus.startsWith("Fel")?"import-err":"import-ok")} role="status">{importStatus}</div>}
       </div>
     </div>
   );
@@ -1406,7 +1382,7 @@ function CardsView({ cards, tags, themes, onUpdate, uid, deckId }) {
         )}
       </div>
 
-      {showEditor && <CardEditor card={editing} tags={tags} themes={themes} deckId={deckId} onSave={saveCard} onCancel={()=>{setShowEditor(false);setEditing(null);}} />}
+      {showEditor && <CardEditor card={editing} tags={tags} themes={themes || []} deckId={deckId} onSave={saveCard} onCancel={()=>{setShowEditor(false);setEditing(null);}} />}
 
       <div className="cards-table-wrap">
         <table className="cards-table" aria-label="Kort i listan">
@@ -1803,7 +1779,10 @@ function ExploreView({ uid, tags, themes, onImport, copiedDeckIds=[] }) {
   useEffect(()=>{ setCopiedIds(copiedDeckIds); },[copiedDeckIds]);
 
   async function copyDeck(srcDeck) {
-    if (copiedIds.includes(srcDeck.id)) { alert("Du har redan kopierat den här listan!"); return; }
+    if (copiedIds.includes(srcDeck.id)) {
+      alert("Du har redan kopierat den här listan! Den finns i dina ordlistor.");
+      return;
+    }
     const { data: nd } = await supabase.from("decks").insert({
       user_id:uid, name:`${srcDeck.name} (kopia)`, description:srcDeck.description,
       pair_type:srcDeck.pair_type, front_lang:srcDeck.front_lang, back_lang:srcDeck.back_lang,
@@ -3432,6 +3411,11 @@ function AdminThemes({ themes, uid, onUpdate }) {
     await supabase.from("themes").update({ is_active: !t.is_active }).eq("id", t.id); onUpdate();
   }
 
+  async function deleteTheme(t) {
+    if (!confirm(`Ta bort temat "${t.name}"? Det tas bort från alla kort och listor.`)) return;
+    await supabase.from("themes").delete().eq("id", t.id); onUpdate();
+  }
+
   return (
     <div>
       <div className="form-row" style={{marginBottom:"16px"}}>
@@ -3440,15 +3424,25 @@ function AdminThemes({ themes, uid, onUpdate }) {
         <input type="color" value={color} onChange={e=>setColor(e.target.value)} aria-label="Färg" style={{height:"38px",padding:"2px",borderRadius:"6px",border:"1px solid var(--border)"}} />
         <button className="btn-primary" onClick={createTheme} disabled={!name.trim()}>Skapa tema</button>
       </div>
-      <div className="themes-grid">
-        {themes.map(t=>(
-          <div key={t.id} className={cn("theme-card",!t.is_active&&"inactive-theme")} style={{"--tc":t.color}}>
-            <span className="theme-card-icon" aria-hidden="true">{t.icon}</span>
-            <span>{t.name}</span>
-            <button className="btn-sm btn-ghost-sm" onClick={()=>toggleTheme(t)}>{t.is_active?"Inaktivera":"Aktivera"}</button>
-          </div>
-        ))}
-      </div>
+      <table className="cards-table">
+        <thead><tr><th>Ikon</th><th>Namn</th><th>Aktiv</th><th>Åtgärder</th></tr></thead>
+        <tbody>
+          {themes.map(t=>(
+            <tr key={t.id} className={cn(!t.is_active&&"row-inactive")}>
+              <td style={{fontSize:22}}>{t.icon}</td>
+              <td><span style={{display:"inline-block",width:12,height:12,borderRadius:"50%",background:t.color,marginRight:6,verticalAlign:"middle"}} />{t.name}</td>
+              <td>{t.is_active?"Ja":"Nej"}</td>
+              <td>
+                <div style={{display:"flex",gap:4}}>
+                  <button className="btn-sm btn-ghost-sm" onClick={()=>toggleTheme(t)}>{t.is_active?"Inaktivera":"Aktivera"}</button>
+                  <button className="btn-sm btn-danger-sm" onClick={()=>deleteTheme(t)}>Ta bort</button>
+                </div>
+              </td>
+            </tr>
+          ))}
+          {themes.length===0 && <tr><td colSpan={4} className="muted center-msg">Inga teman.</td></tr>}
+        </tbody>
+      </table>
     </div>
   );
 }
