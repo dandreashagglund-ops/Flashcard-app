@@ -468,6 +468,8 @@ function MainApp({ session }) {
   const isAdmin = profile?.role === "sysadmin";
   const isManager = profile?.role === "group_manager" || isAdmin;
 
+  const [showNewDeckModal, setShowNewDeckModal] = useState(false);
+
   // Don't render until profile is loaded — prevents admin nav from disappearing on first render
   if (!profile) return <div className="splash" role="status"><div className="splash-logo">✦</div><p>Laddar profil…</p></div>;
 
@@ -492,7 +494,6 @@ function MainApp({ session }) {
     ...(isAdmin ? [{ id:"admin", icon:"⚙️", label:"Admin" }] : []),
   ];
 
-  const [showNewDeckModal, setShowNewDeckModal] = useState(false);
 
   return (
     <div className="app">
