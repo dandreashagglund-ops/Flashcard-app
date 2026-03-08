@@ -3796,15 +3796,17 @@ function AdminSubjects({ uid, onUpdate }) {
   }
 
   async function applyAssign() {
-    // Add assignSubject to all selectedDecks
+    const errors = [];
     for (const deckId of selectedDecks) {
       const deck = decks.find(d => d.id === deckId);
       if (!deck) continue;
       const existing = (deck.description || "").split(/[·,]/).map(s => s.trim()).filter(Boolean);
       if (existing.includes(assignSubject)) continue;
       const updated = [...existing, assignSubject].join(", ");
-      await supabase.from("decks").update({ description: updated }).eq("id", deckId);
+      const { error } = await supabase.from("decks").update({ description: updated }).eq("id", deckId);
+      if (error) errors.push(deck.name + ": " + error.message);
     }
+    if (errors.length) { setError("Fel vid koppling:\n" + errors.join("\n")); }
     setShowAssignModal(false);
     setSelectedDecks(new Set());
     setAssignSubject("");
